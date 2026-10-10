@@ -1,0 +1,6 @@
+{
+  "name": "CollabX — Research & Innovation Collaboration Portal",
+  "description": "Centralized collaboration portal for students, researchers, and supervisors to discover projects, publish papers, manage applications, collaborate, and access scholarly search and AI tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
