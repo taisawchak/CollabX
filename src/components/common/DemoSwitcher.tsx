@@ -3,7 +3,7 @@ import { UserCheck, Shield, GraduationCap, RotateCcw, ChevronDown, Check } from 
 import { useApp } from '../../context/AppContext';
 
 export const DemoSwitcher: React.FC = () => {
-  const { currentUser, switchDemoUser, resetToInitialSeed } = useApp();
+  const { currentUser, switchDemoUser, resetToInitialSeed, isSupabaseConnected } = useApp();
   const [isOpen, setIsOpen] = useState(false);
 
   const demoAccounts = [
@@ -20,8 +20,19 @@ export const DemoSwitcher: React.FC = () => {
           <div className="absolute bottom-12 right-0 w-72 bg-white rounded-2xl shadow-2xl border border-[#E3EAF3] p-3 animate-in fade-in slide-in-from-bottom-2 text-xs">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
               <span className="font-bold text-[#0B2A55]">Quick Role Switcher</span>
-              <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold">
-                Demo Bar
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                  isSupabaseConnected
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    : 'bg-amber-100 text-amber-800'
+                }`}
+                title={
+                  isSupabaseConnected
+                    ? 'Connected to Supabase PostgreSQL database'
+                    : 'Local demo engine active. Connect Supabase credentials in .env.local to enable cloud sync.'
+                }
+              >
+                {isSupabaseConnected ? 'Cloud Sync: Active' : 'Demo Mode'}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 mb-2">

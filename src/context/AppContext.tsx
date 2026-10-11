@@ -41,6 +41,16 @@ import {
   validateEmail,
   validatePassword,
 } from '../services/authService';
+import {
+  supabase,
+  isSupabaseConfigured,
+  mapProfileToUser,
+  mapProjectFromRow,
+  mapApplicationFromRow,
+  mapMemberFromRow,
+  mapNotificationFromRow,
+  safeSupabaseCall,
+} from '../lib/supabase';
 
 interface Toast {
   id: string;
@@ -49,6 +59,7 @@ interface Toast {
 }
 
 interface AppContextType {
+  isSupabaseConnected: boolean;
   currentUser: User | null;
   users: User[];
   projects: Project[];
@@ -206,6 +217,130 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(false);
+
+  // Supabase Data Initialization & Real-Time Channel Subscription
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !supabase) return;
+    const client = supabase;
+    let isMounted = true;
+
+    const syncWithSupabase = async () => {
+      try {
+        const [profilesRes, projectsRes, appsRes, membersRes, notifsRes] = await Promise.all([
+          client.from('profiles').select('*'),
+          client.from('projects').select('*'),
+          client.from('applications').select('*'),
+          client.from('project_members').select('*'),
+          client.from('notifications').select('*'),
+        ]);
+
+        if (!isMounted) return;
+
+        if (!profilesRes.error && profilesRes.data && profilesRes.data.length > 0) {
+          const remoteUsers = profilesRes.data.map(mapProfileToUser);
+          setUsers((prev) => {
+            const map = new Map(prev.map((u) => [u.id, u]));
+            remoteUsers.forEach((ru) => map.set(ru.id, ru));
+            return Array.from(map.values());
+          });
+        }
+
+        if (!projectsRes.error && projectsRes.data && projectsRes.data.length > 0) {
+          const remoteProjects = projectsRes.data.map(mapProjectFromRow);
+          setProjects((prev) => {
+            const map = new Map(prev.map((p) => [p.id, p]));
+            remoteProjects.forEach((rp) => map.set(rp.id, rp));
+            return Array.from(map.values());
+          });
+        }
+
+        if (!appsRes.error && appsRes.data && appsRes.data.length > 0) {
+          const remoteApps = appsRes.data.map(mapApplicationFromRow);
+          setApplications((prev) => {
+            const map = new Map(prev.map((a) => [a.id, a]));
+            remoteApps.forEach((ra) => map.set(ra.id, ra));
+            return Array.from(map.values());
+          });
+        }
+
+        if (!membersRes.error && membersRes.data && membersRes.data.length > 0) {
+          const remoteMembers = membersRes.data.map(mapMemberFromRow);
+          setMembers((prev) => {
+            const map = new Map(prev.map((m) => [`${m.projectId}_${m.userId}`, m]));
+            remoteMembers.forEach((rm) => map.set(`${rm.projectId}_${rm.userId}`, rm));
+            return Array.from(map.values());
+          });
+        }
+
+        if (!notifsRes.error && notifsRes.data && notifsRes.data.length > 0) {
+          const remoteNotifs = notifsRes.data.map(mapNotificationFromRow);
+          setNotifications((prev) => {
+            const map = new Map(prev.map((n) => [n.id, n]));
+            remoteNotifs.forEach((rn) => map.set(rn.id, rn));
+            return Array.from(map.values());
+          });
+        }
+
+        setIsSupabaseConnected(true);
+
+        // Realtime Subscription
+        const channel = client
+          .channel('collabx_realtime_sync')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const newApp = mapApplicationFromRow(payload.new);
+              setApplications((prev) => [newApp, ...prev.filter((a) => a.id !== newApp.id)]);
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedApp = mapApplicationFromRow(payload.new);
+              setApplications((prev) => prev.map((a) => (a.id === updatedApp.id ? updatedApp : a)));
+            } else if (payload.eventType === 'DELETE' && payload.old?.id) {
+              setApplications((prev) => prev.filter((a) => a.id !== payload.old.id));
+            }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const newProj = mapProjectFromRow(payload.new);
+              setProjects((prev) => [newProj, ...prev.filter((p) => p.id !== newProj.id)]);
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedProj = mapProjectFromRow(payload.new);
+              setProjects((prev) => prev.map((p) => (p.id === updatedProj.id ? updatedProj : p)));
+            }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const newNotif = mapNotificationFromRow(payload.new);
+              setNotifications((prev) => [newNotif, ...prev.filter((n) => n.id !== newNotif.id)]);
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedNotif = mapNotificationFromRow(payload.new);
+              setNotifications((prev) => prev.map((n) => (n.id === updatedNotif.id ? updatedNotif : n)));
+            }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'project_members' }, (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const newMem = mapMemberFromRow(payload.new);
+              setMembers((prev) => [...prev.filter((m) => m.id !== newMem.id), newMem]);
+            } else if (payload.eventType === 'DELETE' && payload.old?.id) {
+              setMembers((prev) => prev.filter((m) => m.id !== payload.old.id));
+            }
+          })
+          .subscribe();
+
+        return () => {
+          client.removeChannel(channel);
+        };
+      } catch (err) {
+        console.warn('Supabase initial fetch skipped or failed:', err);
+      }
+    };
+
+    syncWithSupabase();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
 
   // Persist to storage on change
   useEffect(() => saveToStorage('users', users), [users]);
@@ -278,7 +413,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, error: 'Please enter both your email address and password.' };
     }
 
-    // 1. Database account lookup
+    // 0. Supabase Authentication (Cloud Backend)
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+
+        if (!authError && authData.user) {
+          const { data: profileRow } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', authData.user.id)
+            .single();
+
+          const authenticatedUser = profileRow
+            ? mapProfileToUser(profileRow)
+            : {
+                id: authData.user.id,
+                name: authData.user.user_metadata?.name || cleanEmail.split('@')[0],
+                email: cleanEmail,
+                role: (authData.user.user_metadata?.role as Role) || 'student',
+                department: authData.user.user_metadata?.department || 'Computer Science',
+                institution: 'CollabX University',
+                headline: 'Researcher',
+                bio: '',
+                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${cleanEmail}`,
+                skills: ['Python', 'Research Writing'],
+                interests: ['Artificial Intelligence'],
+                links: {},
+                status: 'active' as const,
+                createdAt: new Date().toISOString(),
+              };
+
+          setUsers((prev) => [authenticatedUser, ...prev.filter((u) => u.id !== authenticatedUser.id)]);
+          setCurrentUserId(authenticatedUser.id);
+          showToast(`Welcome back, ${authenticatedUser.name}! (Supabase Auth)`, 'success');
+          return { success: true, user: authenticatedUser };
+        }
+      } catch (err) {
+        console.warn('Supabase auth attempt encountered an issue; checking local store:', err);
+      }
+    }
+
+    // 1. Local Database / Seed account lookup (Fallback & Demo Accounts)
     const user = users.find((u) => u.email.toLowerCase() === cleanEmail);
     if (!user) {
       return { success: false, error: 'Invalid email or password.' };
@@ -312,8 +491,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
    * 2. Rejects public registration attempts as Admin.
    * 3. Enforces email and university ID uniqueness against database records.
    * 4. Hashes password securely using salted SHA-256.
-   * 5. Saves new user to records with active status.
-   * 6. Does NOT authenticate session automatically (visitor is redirected to Login).
+   * 5. Connects to Supabase Auth & profiles table if configured.
+   * 6. Saves new user to records with active status.
+   * 7. Does NOT authenticate session automatically (visitor is redirected to Login).
    */
   const register = async (data: {
     name: string;
@@ -364,24 +544,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
+    let supabaseUserId: string | null = null;
+
+    // Optional Supabase Registration
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: data.password,
+          options: {
+            data: {
+              name: cleanName,
+              role: data.role,
+              department: data.department || 'Computer Science & Engineering',
+              universityId: data.universityId,
+            },
+          },
+        });
+
+        if (signUpErr) {
+          console.warn('Supabase Auth signUp note:', signUpErr.message);
+        } else if (signUpData?.user) {
+          supabaseUserId = signUpData.user.id;
+          await supabase.from('profiles').upsert({
+            id: supabaseUserId,
+            email: cleanEmail,
+            name: cleanName,
+            role: data.role,
+            department: data.department?.trim() || 'Computer Science & Engineering',
+            institution: 'CollabX University',
+            headline: data.role === 'student' ? 'CSE Student · Researcher' : 'Faculty Researcher',
+            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${cleanName}`,
+            status: 'active',
+            university_id: data.universityId?.trim(),
+          });
+        }
+      } catch (err) {
+        console.warn('Supabase signUp error fallback to local storage:', err);
+      }
+    }
+
     // Salt and hash the password
     const salt = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
     const passwordHash = await hashPassword(data.password, salt);
 
     const newUser: User = {
-      id: 'user-' + Date.now().toString(36),
+      id: supabaseUserId || 'user-' + Date.now().toString(36),
       name: cleanName,
       email: cleanEmail,
       role: data.role,
       department: data.department?.trim() || 'Computer Science & Engineering',
-      institution: 'Port City International University',
+      institution: 'CollabX University',
       headline:
         data.role === 'student'
           ? 'CSE Student · Researcher'
           : data.role === 'supervisor'
           ? 'Faculty Supervisor & Professor'
           : 'Faculty Researcher',
-      bio: 'Member of the Port City International University research community.',
+      bio: 'Member of the CollabX research community.',
       avatar:
         data.role === 'student'
           ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'
@@ -406,6 +626,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
    * Clears authenticated session and removes stored session identifier.
    */
   const logout = () => {
+    if (isSupabaseConfigured() && supabase) {
+      supabase.auth.signOut().catch(() => {});
+    }
     setCurrentUserId(null);
     localStorage.removeItem(STORAGE_KEY_PREFIX + 'currentUserId');
     showToast('You have been logged out.', 'info');
@@ -583,6 +806,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Submitted application with motivation: "${message.trim().slice(0, 60)}"`,
     });
 
+    // Sync to Supabase if configured
+    safeSupabaseCall(async (client) => {
+      await client.from('applications').upsert({
+        id: appRecord.id,
+        project_id: appRecord.projectId,
+        project_title: appRecord.projectTitle,
+        project_thumbnail: appRecord.projectThumbnail,
+        user_id: appRecord.userId,
+        user_name: appRecord.userName,
+        user_avatar: appRecord.userAvatar,
+        user_headline: appRecord.userHeadline,
+        applied_date: appRecord.appliedDate,
+        status: appRecord.status,
+        message: appRecord.message,
+        skills_note: appRecord.skillsNote,
+        cv_file_name: appRecord.cvFileName,
+      });
+
+      await client.from('notifications').insert({
+        id: newNotif.id,
+        user_id: newNotif.userId,
+        type: newNotif.type,
+        title: newNotif.title,
+        body: newNotif.body,
+        link: newNotif.link,
+        is_read: false,
+      });
+    });
+
     showToast('Application submitted successfully!', 'success');
     return true;
   };
@@ -608,6 +860,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setApplications((prev) =>
       prev.map((a) => (a.id === appId ? { ...a, status: 'withdrawn' } : a))
     );
+
+    // Sync to Supabase if configured
+    safeSupabaseCall(async (client) => {
+      await client.from('applications').update({ status: 'withdrawn' }).eq('id', appId);
+    });
 
     addActivityLog({
       userId: currentUser.id,
@@ -732,6 +989,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         details: `Approved application for ${targetApp.userName}`,
       });
 
+      // 6. Supabase Cloud Sync (Approved)
+      safeSupabaseCall(async (client) => {
+        await client
+          .from('applications')
+          .update({
+            status: 'approved',
+            supervisor_response: responseNote || null,
+            decided_at: new Date().toISOString(),
+          })
+          .eq('id', appId);
+
+        await client
+          .from('project_members')
+          .upsert({
+            id: newMember.id,
+            project_id: newMember.projectId,
+            user_id: newMember.userId,
+            name: newMember.name,
+            email: newMember.email,
+            avatar: newMember.avatar,
+            role: 'member',
+            position_title: newMember.positionTitle,
+            status: 'active',
+          });
+
+        await client
+          .from('projects')
+          .update({
+            filled_positions: Math.min(project.totalPositions, project.filledPositions + 1),
+          })
+          .eq('id', project.id);
+
+        await client
+          .from('notifications')
+          .insert({
+            id: notif.id,
+            user_id: notif.userId,
+            type: notif.type,
+            title: notif.title,
+            body: notif.body,
+            link: notif.link,
+            is_read: false,
+          });
+      });
+
       showToast(`Application approved! ${targetApp.userName} is now a team member.`, 'success');
     } else {
       // Rejection branch: updates status and optional feedback, does NOT add to members
@@ -772,6 +1074,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         targetId: targetApp.id,
         targetTitle: targetApp.projectTitle,
         details: `Rejected application for ${targetApp.userName}.${responseNote ? ` Reason: ${responseNote}` : ''}`,
+      });
+
+      // Supabase Cloud Sync (Rejected)
+      safeSupabaseCall(async (client) => {
+        await client
+          .from('applications')
+          .update({
+            status: 'rejected',
+            supervisor_response: responseNote || null,
+            decided_at: new Date().toISOString(),
+          })
+          .eq('id', appId);
+
+        await client
+          .from('notifications')
+          .insert({
+            id: notif.id,
+            user_id: notif.userId,
+            type: notif.type,
+            title: notif.title,
+            body: notif.body,
+            link: notif.link,
+            is_read: false,
+          });
       });
 
       showToast('Application marked as rejected', 'info');
@@ -899,6 +1225,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       targetId: newProj.id,
       targetTitle: newProj.title,
       details: initialStatus === 'draft' ? 'Saved project as draft' : `Submitted project for moderation (${initialStatus})`,
+    });
+
+    // Supabase Cloud Sync
+    safeSupabaseCall(async (client) => {
+      await client
+        .from('projects')
+        .insert({
+          id: newProj.id,
+          title: newProj.title,
+          slug: newProj.slug,
+          summary: newProj.summary,
+          description: newProj.description,
+          objectives: newProj.objectives,
+          expected_outcome: newProj.expectedOutcome,
+          methodology: newProj.methodology,
+          area_id: newProj.areaId,
+          area_name: newProj.areaName,
+          subarea: newProj.subarea,
+          project_type: newProj.projectType,
+          difficulty: newProj.difficulty,
+          duration_months: newProj.durationMonths,
+          total_positions: newProj.totalPositions,
+          filled_positions: newProj.filledPositions,
+          deadline: newProj.deadline || null,
+          start_date: newProj.startDate || null,
+          end_date: newProj.endDate || null,
+          status: newProj.status,
+          supervisor_id: newProj.supervisor.id,
+          supervisor_name: newProj.supervisor.name,
+          supervisor_title: newProj.supervisor.title,
+          supervisor_avatar: newProj.supervisor.avatar,
+          supervisor_institution: newProj.supervisor.institution,
+          supervisor_email: newProj.supervisor.email,
+          required_skills: newProj.requiredSkills,
+          tags: newProj.tags,
+          thumbnail: newProj.thumbnail,
+          views: newProj.views,
+          progress_percent: newProj.progressPercent,
+        });
+
+      await client
+        .from('project_members')
+        .insert({
+          id: newMember.id,
+          project_id: newMember.projectId,
+          user_id: newMember.userId,
+          name: newMember.name,
+          email: newMember.email,
+          avatar: newMember.avatar,
+          role: 'supervisor',
+          position_title: newMember.positionTitle,
+          status: 'active',
+        });
     });
 
     if (initialStatus === 'draft') {
@@ -1273,6 +1652,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications((prev) =>
       prev.map((n) => (n.userId === currentUser.id ? { ...n, isRead: true } : n))
     );
+    safeSupabaseCall(async (client) => {
+      await client
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', currentUser.id);
+    });
     showToast('All notifications marked as read', 'info');
   };
 
@@ -1281,6 +1666,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications((prev) =>
       prev.map((n) => (n.id === id && (n.userId === currentUser.id || currentUser.role === 'admin') ? { ...n, isRead: true } : n))
     );
+    safeSupabaseCall(async (client) => {
+      await client
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', id);
+    });
   };
 
   const deleteNotification = (id: string) => {
@@ -1288,6 +1679,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNotifications((prev) =>
       prev.filter((n) => !(n.id === id && (n.userId === currentUser.id || currentUser.role === 'admin')))
     );
+    safeSupabaseCall(async (client) => {
+      await client
+        .from('notifications')
+        .delete()
+        .eq('id', id);
+    });
   };
 
   const addCalendarEvent = (event: Omit<CalendarEvent, 'id'>) => {
@@ -1458,6 +1855,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Added ${newMember.name} as ${newMember.positionTitle}`,
     });
 
+    // Supabase Cloud Sync
+    safeSupabaseCall(async (client) => {
+      await client
+        .from('project_members')
+        .upsert({
+          id: newMember.id,
+          project_id: newMember.projectId,
+          user_id: newMember.userId,
+          name: newMember.name,
+          email: newMember.email,
+          avatar: newMember.avatar,
+          role: 'member',
+          position_title: newMember.positionTitle,
+          status: 'active',
+        });
+
+      await client
+        .from('projects')
+        .update({
+          filled_positions: Math.min(project.totalPositions, members.filter((m) => m.projectId === projectId).length + 1),
+        })
+        .eq('id', project.id);
+
+      if (user) {
+        await client
+          .from('notifications')
+          .insert({
+            id: 'notif-' + uniqueSuffix,
+            user_id: user.id,
+            type: 'member_added',
+            title: 'Team Invitation',
+            body: `You have been added to the team for "${project.title}" as ${newMember.positionTitle}.`,
+            link: `/projects/${project.id}`,
+            is_read: false,
+          });
+      }
+    });
+
     showToast(`Invitation sent to ${newMember.name}!`, 'success');
   };
 
@@ -1508,7 +1943,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createdAt: new Date().toISOString(),
       };
       setNotifications((prev) => [notif, ...prev]);
+
+      safeSupabaseCall(async (client) => {
+        await client
+          .from('notifications')
+          .insert({
+            id: 'notif-' + uniqueSuffix,
+            user_id: member.userId,
+            type: 'system',
+            title: 'Team Membership Update',
+            body: `You have been removed from the team for "${project.title}".`,
+            link: '/my-projects',
+            is_read: false,
+          });
+      });
     }
+
+    // Supabase Cloud Sync
+    safeSupabaseCall(async (client) => {
+      await client
+        .from('project_members')
+        .delete()
+        .eq('id', memberId);
+
+      const remainingCount = members.filter((m) => m.projectId === member.projectId && m.id !== memberId).length;
+      await client
+        .from('projects')
+        .update({
+          filled_positions: Math.max(1, remainingCount),
+        })
+        .eq('id', member.projectId);
+    });
 
     addActivityLog({
       userId: currentUser.id,
@@ -1596,6 +2061,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        isSupabaseConnected,
         currentUser,
         users,
         projects,
