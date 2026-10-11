@@ -34,6 +34,7 @@ import { AiPaperWriterPage } from './components/pages/AiPaperWriterPage';
 import { PublishProjectPage } from './components/pages/PublishProjectPage';
 import { SearchResultsPage } from './components/pages/SearchResultsPage';
 import { AboutContactPage } from './components/pages/AboutContactPage';
+import { NotFoundPage } from './components/pages/NotFoundPage';
 
 /**
  * Public route determination:
@@ -84,6 +85,44 @@ export const isPublicPath = (path: string): boolean => {
   return false;
 };
 
+/**
+ * Checks if a path is recognized as a valid route within CollabX.
+ * Distinguishes genuine application routes (public or protected) from invalid 404 URLs.
+ */
+export const isKnownRoute = (path: string): boolean => {
+  const cleanPath = path.split('?')[0].split('#')[0];
+  if (isPublicPath(cleanPath)) {
+    return true;
+  }
+
+  // Known authenticated / role-specific routes
+  if (
+    cleanPath === '/dashboard' ||
+    cleanPath === '/applications' ||
+    cleanPath === '/saved' ||
+    cleanPath === '/my-projects' ||
+    cleanPath === '/profile' ||
+    cleanPath.startsWith('/u/') ||
+    cleanPath === '/notifications' ||
+    cleanPath === '/calendar' ||
+    cleanPath.startsWith('/ai-writer') ||
+    cleanPath === '/researcher' ||
+    cleanPath.startsWith('/researcher/') ||
+    cleanPath === '/admin' ||
+    cleanPath.startsWith('/admin/') ||
+    cleanPath === '/settings'
+  ) {
+    return true;
+  }
+
+  // Project workspace sub-routes and creation
+  if (cleanPath.startsWith('/projects/')) {
+    return true;
+  }
+
+  return false;
+};
+
 const AppContent: React.FC = () => {
   const { currentUser } = useApp();
 
@@ -110,21 +149,29 @@ const AppContent: React.FC = () => {
   const cleanPath = currentPath.split('?')[0].split('#')[0];
   const isAuthPage = cleanPath === '/login' || cleanPath === '/register';
   const isPublicPage = isPublicPath(cleanPath);
+  const isKnown = isKnownRoute(cleanPath);
 
   // AUTH PROTECTION REDIRECT:
-  // If not logged in and visitor tries to open a protected route directly,
-  // sync history and redirect to Login while preserving destination
+  // If not logged in and visitor tries to open a valid protected route directly,
+  // sync history and redirect to Login while preserving destination.
+  // Genuinely invalid routes are NOT redirected to login so user sees custom 404 page!
   useEffect(() => {
-    if (!currentUser && !isPublicPath(cleanPath)) {
+    if (!currentUser && isKnown && !isPublicPath(cleanPath)) {
       const redirectUrl = `/login?redirect=${encodeURIComponent(currentPath)}`;
       window.history.replaceState({}, '', redirectUrl);
       setCurrentPath(redirectUrl);
     }
-  }, [currentUser, cleanPath, currentPath]);
+  }, [currentUser, isKnown, cleanPath, currentPath]);
 
   // Helper parser for dynamic routes
   const getRouteComponent = () => {
-    // 0. STRICT AUTH GUARD:
+    // 0. GENUINELY INVALID ROUTE:
+    // Render custom 404 page preserving requested URL without blindly redirecting to Home
+    if (!isKnown) {
+      return <NotFoundPage navigate={navigate} currentPath={cleanPath} />;
+    }
+
+    // 0b. STRICT AUTH GUARD:
     // If unauthenticated visitor attempts to access a protected route,
     // immediately render LoginPage to prevent any private content flash
     if (!currentUser && !isPublicPath(cleanPath)) {
@@ -307,13 +354,13 @@ const AppContent: React.FC = () => {
       return <AboutContactPage navigate={navigate} activeSection="faq" />;
     }
 
-    // Fallback: Public Landing
-    return <LandingPage navigate={navigate} />;
+    // Fallback: If somehow an unrecognized route is reached
+    return <NotFoundPage navigate={navigate} currentPath={cleanPath} />;
   };
 
-  // Public pages, authentication pages (login/register), or unauthenticated visitors:
+  // Public pages, authentication pages (login/register), invalid (404) pages, or unauthenticated visitors:
   // Full-width layout with the shared CollabX Navbar and Footer (WITHOUT the internal left sidebar)
-  if (isPublicPage || isAuthPage || !currentUser) {
+  if (isPublicPage || isAuthPage || !isKnown || !currentUser) {
     return (
       <div className="min-h-screen flex flex-col justify-between bg-[#F5F8FC]">
         <Navbar currentPath={currentPath} navigate={navigate} />
