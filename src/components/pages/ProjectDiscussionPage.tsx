@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   MessageSquare,
   Send,
@@ -30,10 +30,15 @@ export const ProjectDiscussionPage: React.FC<ProjectDiscussionPageProps> = ({ pr
   const [inputMessage, setInputMessage] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
   const [selectedFile, setSelectedFile] = useState<{ name: string; size: string; type: string } | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const project = projects.find((p) => p.id === projectId) || projects[0];
   const projectMessages = messages.filter((m) => m.projectId === project.id);
   const projectMembers = members.filter((m) => m.projectId === project.id);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [projectMessages.length]);
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,6 +234,7 @@ export const ProjectDiscussionPage: React.FC<ProjectDiscussionPageProps> = ({ pr
                 );
               })
             )}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Composer matching Page 13 */}

@@ -32,16 +32,25 @@ export const MyProjectsPage: React.FC<MyProjectsPageProps> = ({ navigate }) => {
     completeProject,
     deleteProject,
   } = useApp();
-  const [activeTab, setActiveTab] = useState<'joined' | 'completed' | 'published'>('joined');
+  const [activeTab, setActiveTab] = useState<'joined' | 'completed' | 'published'>(() => {
+    if (currentUser?.role === 'supervisor' || currentUser?.role === 'researcher') {
+      return 'published';
+    }
+    return 'joined';
+  });
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   if (!currentUser) {
     return null;
   }
 
-  // User's joined project IDs
+  // User's joined project IDs (matched by user ID or email)
   const joinedProjectIds = members
-    .filter((m) => m.userId === currentUser.id)
+    .filter(
+      (m) =>
+        m.userId === currentUser.id ||
+        (currentUser.email && m.email && m.email.toLowerCase() === currentUser.email.toLowerCase())
+    )
     .map((m) => m.projectId);
 
   // Projects joined
@@ -50,9 +59,12 @@ export const MyProjectsPage: React.FC<MyProjectsPageProps> = ({ navigate }) => {
   // Projects completed
   const completedProjects = projects.filter((p) => joinedProjectIds.includes(p.id) && p.status === 'completed');
 
-  // Projects published by current user
+  // Projects published by current user (matched by supervisor user ID or email)
   const publishedProjects = projects.filter(
-    (p) => p.supervisor.id === currentUser?.id || (currentUser?.role === 'admin' && p.status === 'pending')
+    (p) =>
+      p.supervisor.id === currentUser?.id ||
+      (currentUser?.email && p.supervisor.email && p.supervisor.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+      (currentUser?.role === 'admin' && p.status === 'pending')
   );
 
   const displayList =

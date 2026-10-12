@@ -79,12 +79,14 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate }) => {
               </span>
             </button>
 
-            {/* Desktop Center Nav Links matching screenshot */}
-            <div className="hidden md:flex items-center gap-6 lg:gap-8 ml-6">
+            {/* Desktop Center Nav Links */}
+            <div className="hidden md:flex items-center gap-5 lg:gap-7 ml-6">
               {[
                 { label: 'Home', path: '/' },
                 { label: 'Research Areas', path: '/research-areas' },
                 { label: 'Projects', path: '/projects' },
+                { label: 'Papers', path: '/papers' },
+                { label: 'AI Writer', path: '/ai-writer', badge: 'AI' },
                 { label: 'About', path: '/about' },
               ].map((link) => {
                 const isActive = currentPath === link.path;
@@ -92,13 +94,18 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate }) => {
                   <button
                     key={link.path}
                     onClick={() => navigate(link.path)}
-                    className={`text-sm font-medium transition-colors cursor-pointer ${
+                    className={`text-sm font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
                       isActive
                         ? 'text-[#0B6BE6] font-bold'
                         : 'text-[#0B2A55] hover:text-[#0B6BE6]'
                     }`}
                   >
-                    {link.label}
+                    <span>{link.label}</span>
+                    {link.badge && (
+                      <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                        {link.badge}
+                      </span>
+                    )}
                   </button>
                 );
               })}

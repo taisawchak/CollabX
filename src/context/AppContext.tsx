@@ -49,6 +49,8 @@ import {
   mapApplicationFromRow,
   mapMemberFromRow,
   mapNotificationFromRow,
+  mapPaperFromRow,
+  mapMessageFromRow,
   safeSupabaseCall,
 } from '../lib/supabase';
 
@@ -187,17 +189,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [users, setUsers] = useState<User[]>(() => loadFromStorage('users', SEED_USERS));
   // Authenticated user ID - Defaults strictly to null (visitor starts logged out)
   const [currentUserId, setCurrentUserId] = useState<string | null>(() => {
-    const saved = loadFromStorage<string | null>('currentUserId', null);
-    if (!saved) return null;
-    const usersList = loadFromStorage<User[]>('users', SEED_USERS);
-    const validUser = usersList.find((u) => u.id === saved && u.status !== 'inactive');
-    if (!validUser) {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.removeItem(STORAGE_KEY_PREFIX + 'currentUserId');
-      }
-      return null;
-    }
-    return saved;
+    return loadFromStorage<string | null>('currentUserId', null);
   });
   const [projects, setProjects] = useState<Project[]>(() => loadFromStorage('projects', SEED_PROJECTS));
   const [areas, setAreas] = useState<ResearchArea[]>(() => loadFromStorage('areas', SEED_AREAS));
@@ -227,12 +219,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const syncWithSupabase = async () => {
       try {
-        const [profilesRes, projectsRes, appsRes, membersRes, notifsRes] = await Promise.all([
+        const [profilesRes, projectsRes, appsRes, membersRes, notifsRes, papersRes, messagesRes] = await Promise.all([
           client.from('profiles').select('*'),
           client.from('projects').select('*'),
           client.from('applications').select('*'),
           client.from('project_members').select('*'),
           client.from('notifications').select('*'),
+          client.from('papers').select('*'),
+          client.from('messages').select('*').order('created_at', { ascending: true }),
         ]);
 
         if (!isMounted) return;
@@ -282,7 +276,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
         }
 
+        if (!papersRes.error && papersRes.data && papersRes.data.length > 0) {
+          const remotePapers = papersRes.data.map(mapPaperFromRow);
+          setPapers((prev) => {
+            const map = new Map(prev.map((p) => [p.id, p]));
+            remotePapers.forEach((rp) => map.set(rp.id, rp));
+            return Array.from(map.values());
+          });
+        }
+
+        if (!messagesRes.error && messagesRes.data && messagesRes.data.length > 0) {
+          const remoteMessages = messagesRes.data.map(mapMessageFromRow);
+          setMessages((prev) => {
+            const map = new Map(prev.map((m) => [m.id, m]));
+            remoteMessages.forEach((rm) => map.set(rm.id, rm));
+            return Array.from(map.values());
+          });
+        }
+
         setIsSupabaseConnected(true);
+
+        // Check for active Supabase Auth session to restore credentials persistently
+        try {
+          const { data: sessionData } = await client.auth.getSession();
+          if (sessionData?.session?.user && isMounted) {
+            const authUser = sessionData.session.user;
+            const userProfile = profilesRes.data?.find((p: any) => p.id === authUser.id);
+            const mappedUser = userProfile ? mapProfileToUser(userProfile) : {
+              id: authUser.id,
+              name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Researcher',
+              email: authUser.email || '',
+              role: (authUser.user_metadata?.role as Role) || 'student',
+              department: authUser.user_metadata?.department || 'Computer Science & Engineering',
+              institution: 'CollabX University',
+              headline: authUser.user_metadata?.role === 'supervisor' ? 'Faculty Supervisor' : 'Researcher',
+              bio: '',
+              avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.email || authUser.id}`,
+              skills: ['Python', 'Research Writing'],
+              interests: ['Artificial Intelligence'],
+              links: {},
+              status: 'active' as const,
+              createdAt: authUser.created_at || new Date().toISOString(),
+            };
+            setUsers((prev) => [mappedUser, ...prev.filter((u) => u.id !== mappedUser.id)]);
+            setCurrentUserId(authUser.id);
+          }
+        } catch (sessErr) {
+          console.warn('Could not inspect Supabase session:', sessErr);
+        }
 
         // Realtime Subscription
         const channel = client
@@ -305,6 +346,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } else if (payload.eventType === 'UPDATE') {
               const updatedProj = mapProjectFromRow(payload.new);
               setProjects((prev) => prev.map((p) => (p.id === updatedProj.id ? updatedProj : p)));
+            } else if (payload.eventType === 'DELETE' && payload.old?.id) {
+              setProjects((prev) => prev.filter((p) => p.id !== payload.old.id));
             }
           })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
@@ -324,9 +367,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setMembers((prev) => prev.filter((m) => m.id !== payload.old.id));
             }
           })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'papers' }, (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const newPaper = mapPaperFromRow(payload.new);
+              setPapers((prev) => [newPaper, ...prev.filter((p) => p.id !== newPaper.id)]);
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedPaper = mapPaperFromRow(payload.new);
+              setPapers((prev) => prev.map((p) => (p.id === updatedPaper.id ? updatedPaper : p)));
+            } else if (payload.eventType === 'DELETE' && payload.old?.id) {
+              setPapers((prev) => prev.filter((p) => p.id !== payload.old.id));
+            }
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const newMsg = mapMessageFromRow(payload.new);
+              setMessages((prev) => [...prev.filter((m) => m.id !== newMsg.id), newMsg]);
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedMsg = mapMessageFromRow(payload.new);
+              setMessages((prev) => prev.map((m) => (m.id === updatedMsg.id ? updatedMsg : m)));
+            } else if (payload.eventType === 'DELETE' && payload.old?.id) {
+              setMessages((prev) => prev.filter((m) => m.id !== payload.old.id));
+            }
+          })
           .subscribe();
 
+        // Listen for Auth changes in real time
+        const { data: authSub } = client.auth.onAuthStateChange(async (event, session) => {
+          if (!isMounted) return;
+          if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+            const { data: pRow } = await client.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+            if (pRow) {
+              const u = mapProfileToUser(pRow);
+              setUsers((prev) => [u, ...prev.filter((x) => x.id !== u.id)]);
+              setCurrentUserId(u.id);
+            }
+          } else if (event === 'SIGNED_OUT') {
+            setCurrentUserId(null);
+          }
+        });
+
         return () => {
+          authSub.subscription.unsubscribe();
           client.removeChannel(channel);
         };
       } catch (err) {
@@ -377,13 +458,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const currentUser = users.find((u) => u.id === currentUserId && u.status !== 'inactive') || null;
 
-  // Safeguard: If currentUserId exists but user cannot be found or is inactive, purge session
+  // If currentUser is loaded and found to be deactivated/inactive, end the session
   useEffect(() => {
-    if (currentUserId && !currentUser) {
+    if (currentUserId && currentUser && currentUser.status === 'inactive') {
       setCurrentUserId(null);
       if (typeof window !== 'undefined' && window.localStorage) {
         localStorage.removeItem(STORAGE_KEY_PREFIX + 'currentUserId');
       }
+      showToast('Your session has ended because this account has been deactivated.', 'warning');
     }
   }, [currentUserId, currentUser]);
 
@@ -421,12 +503,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           password,
         });
 
-        if (!authError && authData.user) {
+        if (authError) {
+          // If email confirmation is required, report that to the user clearly
+          if (authError.message.toLowerCase().includes('email not confirmed')) {
+            return {
+              success: false,
+              error: 'Email not confirmed. Please check your inbox or disable email confirmation in your Supabase Auth settings.',
+            };
+          }
+          // If credentials error, check if this is a known local seed demo user
+          const isDemoSeed = SEED_USERS.some((su) => su.email.toLowerCase() === cleanEmail);
+          if (!isDemoSeed) {
+            return { success: false, error: authError.message || 'Invalid email or password.' };
+          }
+        } else if (authData?.user) {
           const { data: profileRow } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', authData.user.id)
-            .single();
+            .maybeSingle();
 
           const authenticatedUser = profileRow
             ? mapProfileToUser(profileRow)
@@ -435,7 +530,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 name: authData.user.user_metadata?.name || cleanEmail.split('@')[0],
                 email: cleanEmail,
                 role: (authData.user.user_metadata?.role as Role) || 'student',
-                department: authData.user.user_metadata?.department || 'Computer Science',
+                department: authData.user.user_metadata?.department || 'Computer Science & Engineering',
                 institution: 'CollabX University',
                 headline: 'Researcher',
                 bio: '',
@@ -452,8 +547,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           showToast(`Welcome back, ${authenticatedUser.name}! (Supabase Auth)`, 'success');
           return { success: true, user: authenticatedUser };
         }
-      } catch (err) {
-        console.warn('Supabase auth attempt encountered an issue; checking local store:', err);
+      } catch (err: any) {
+        console.warn('Supabase auth attempt encountered an issue:', err);
       }
     }
 
@@ -563,10 +658,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
 
         if (signUpErr) {
-          console.warn('Supabase Auth signUp note:', signUpErr.message);
+          if (signUpErr.message.toLowerCase().includes('already registered')) {
+            return { success: false, error: 'An account with this email address already exists in Supabase Auth.' };
+          }
+          return { success: false, error: signUpErr.message || 'Supabase authentication registration failed.' };
         } else if (signUpData?.user) {
           supabaseUserId = signUpData.user.id;
-          await supabase.from('profiles').upsert({
+          const { error: profErr } = await supabase.from('profiles').upsert({
             id: supabaseUserId,
             email: cleanEmail,
             name: cleanName,
@@ -578,9 +676,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             status: 'active',
             university_id: data.universityId?.trim(),
           });
+          if (profErr) {
+            console.warn('Profile sync warning in Supabase:', profErr.message);
+          }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.warn('Supabase signUp error fallback to local storage:', err);
+        return { success: false, error: err.message || 'Error communicating with Supabase authentication server.' };
       }
     }
 
@@ -1128,10 +1230,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Determine configured moderation status:
     // Draft -> Pending -> Approved
+    // Faculty (supervisors & researchers) and administrators publish directly as approved/active
     let initialStatus: ProjectStatus = 'pending';
     if (options?.isDraft) {
       initialStatus = 'draft';
-    } else if (currentUser?.role === 'admin') {
+    } else if (currentUser?.role === 'admin' || currentUser?.role === 'supervisor' || currentUser?.role === 'researcher') {
       initialStatus = 'approved';
     }
 
@@ -1229,7 +1332,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Supabase Cloud Sync
     safeSupabaseCall(async (client) => {
-      await client
+      // Ensure supervisor profile exists in profiles table before inserting project
+      await client.from('profiles').upsert({
+        id: supervisor.id,
+        email: supervisor.email,
+        name: supervisor.name,
+        role: supervisor.role,
+        department: supervisor.department || 'Computer Science & Engineering',
+        institution: supervisor.institution || 'Port City International University',
+        headline: supervisor.headline || 'Faculty Supervisor',
+        avatar: supervisor.avatar,
+        status: 'active',
+      });
+
+      const { error: projErr } = await client
         .from('projects')
         .insert({
           id: newProj.id,
@@ -1339,6 +1455,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: 'Submitted draft project for admin approval',
     });
 
+    // Supabase Cloud Sync
+    safeSupabaseCall(async (client) => {
+      await client.from('projects').update({ status: 'pending' }).eq('id', projectId);
+    });
+
     showToast('Project submitted for moderation!', 'success');
   };
 
@@ -1356,6 +1477,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, ...updates } : p)));
+
+    safeSupabaseCall(async (client) => {
+      const payload: Record<string, any> = {};
+      if (updates.title !== undefined) payload.title = updates.title;
+      if (updates.summary !== undefined) payload.summary = updates.summary;
+      if (updates.description !== undefined) payload.description = updates.description;
+      if (updates.objectives !== undefined) payload.objectives = updates.objectives;
+      if (updates.expectedOutcome !== undefined) payload.expected_outcome = updates.expectedOutcome;
+      if (updates.methodology !== undefined) payload.methodology = updates.methodology;
+      if (updates.areaId !== undefined) payload.area_id = updates.areaId;
+      if (updates.areaName !== undefined) payload.area_name = updates.areaName;
+      if (updates.difficulty !== undefined) payload.difficulty = updates.difficulty;
+      if (updates.status !== undefined) payload.status = updates.status;
+      if (updates.deadline !== undefined) payload.deadline = updates.deadline || null;
+      if (updates.totalPositions !== undefined) payload.total_positions = updates.totalPositions;
+      if (updates.filledPositions !== undefined) payload.filled_positions = updates.filledPositions;
+      if (updates.requiredSkills !== undefined) payload.required_skills = updates.requiredSkills;
+      if (updates.tags !== undefined) payload.tags = updates.tags;
+      if (updates.thumbnail !== undefined) payload.thumbnail = updates.thumbnail;
+      if (updates.progressPercent !== undefined) payload.progress_percent = updates.progressPercent;
+      if (Object.keys(payload).length > 0) {
+        await client.from('projects').update(payload).eq('id', projectId);
+      }
+    });
+
     showToast('Project updated successfully', 'success');
   };
 
@@ -1376,6 +1522,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((p) => (p.id === projectId ? { ...p, status: 'archived' } : p))
     );
 
+    safeSupabaseCall(async (client) => {
+      await client.from('projects').update({ status: 'archived' }).eq('id', projectId);
+    });
+
     // Notify active project members
     const projectMembers = members.filter((m) => m.projectId === projectId && m.userId !== currentUser.id);
     projectMembers.forEach((mem) => {
@@ -1390,6 +1540,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createdAt: new Date().toISOString(),
       };
       setNotifications((prev) => [notif, ...prev]);
+
+      safeSupabaseCall(async (client) => {
+        await client.from('notifications').insert({
+          id: notif.id,
+          user_id: notif.userId,
+          type: notif.type,
+          title: notif.title,
+          body: notif.body,
+          link: notif.link,
+          is_read: false,
+        });
+      });
     });
 
     addActivityLog({
@@ -1423,6 +1585,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((p) => (p.id === projectId ? { ...p, status: 'closed' } : p))
     );
 
+    safeSupabaseCall(async (client) => {
+      await client.from('projects').update({ status: 'closed' }).eq('id', projectId);
+    });
+
     addActivityLog({
       userId: currentUser.id,
       userName: currentUser.name,
@@ -1453,6 +1619,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setProjects((prev) =>
       prev.map((p) => (p.id === projectId ? { ...p, status: 'completed', progressPercent: 100 } : p))
     );
+
+    safeSupabaseCall(async (client) => {
+      await client.from('projects').update({ status: 'completed', progress_percent: 100 }).eq('id', projectId);
+    });
 
     addActivityLog({
       userId: currentUser.id,
@@ -1489,6 +1659,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMilestones((prev) => prev.filter((m) => m.projectId !== projectId));
     setFiles((prev) => prev.filter((f) => f.projectId !== projectId));
     setMessages((prev) => prev.filter((m) => m.projectId !== projectId));
+
+    safeSupabaseCall(async (client) => {
+      await client.from('projects').delete().eq('id', projectId);
+    });
 
     addActivityLog({
       userId: currentUser.id,
@@ -1530,6 +1704,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setNotifications((prev) => [notif, ...prev]);
 
+    safeSupabaseCall(async (client) => {
+      await client.from('projects').update({ status: 'approved', reject_reason: null }).eq('id', projectId);
+      await client.from('notifications').insert({
+        id: notif.id,
+        user_id: notif.userId,
+        type: notif.type,
+        title: notif.title,
+        body: notif.body,
+        link: notif.link,
+        is_read: false,
+      });
+    });
+
     addActivityLog({
       userId: currentUser.id,
       userName: currentUser.name,
@@ -1568,6 +1755,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
     setNotifications((prev) => [notif, ...prev]);
+
+    safeSupabaseCall(async (client) => {
+      await client.from('projects').update({ status: 'rejected', reject_reason: reason || null }).eq('id', projectId);
+      await client.from('notifications').insert({
+        id: notif.id,
+        user_id: notif.userId,
+        type: notif.type,
+        title: notif.title,
+        body: notif.body,
+        link: notif.link,
+        is_read: false,
+      });
+    });
 
     addActivityLog({
       userId: currentUser.id,
@@ -1645,6 +1845,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isRead: true,
     };
     setMessages((prev) => [...prev, newMsg]);
+
+    safeSupabaseCall(async (client) => {
+      // Ensure sender profile exists in profiles table before inserting message
+      await client.from('profiles').upsert({
+        id: currentUser.id,
+        email: currentUser.email,
+        name: currentUser.name,
+        role: currentUser.role,
+        department: currentUser.department || 'Computer Science & Engineering',
+        institution: currentUser.institution || 'Port City International University',
+        headline: currentUser.headline || '',
+        avatar: currentUser.avatar,
+        status: 'active',
+      });
+
+      const { error: msgErr } = await client.from('messages').insert({
+        id: newMsg.id,
+        project_id: newMsg.projectId,
+        sender_id: newMsg.senderId,
+        sender_name: newMsg.senderName,
+        sender_avatar: newMsg.senderAvatar,
+        body: newMsg.body,
+        attachment: newMsg.attachment || null,
+        is_read: true,
+      });
+
+      if (msgErr) {
+        console.error('Supabase message insert error:', msgErr);
+      }
+    });
   };
 
   const markNotificationsRead = () => {
@@ -1736,17 +1966,88 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setPapers((prev) => [newPaper, ...prev]);
+
+    // Supabase Cloud Sync
+    safeSupabaseCall(async (client) => {
+      // Ensure uploader profile exists in profiles table before inserting paper
+      await client.from('profiles').upsert({
+        id: uploader.id,
+        email: uploader.email,
+        name: uploader.name,
+        role: uploader.role,
+        department: uploader.department || 'Computer Science & Engineering',
+        institution: uploader.institution || 'Port City International University',
+        headline: uploader.headline || 'Faculty Researcher',
+        avatar: uploader.avatar,
+        status: 'active',
+      });
+
+      const { error: paperErr } = await client.from('papers').insert({
+        id: newPaper.id,
+        uploader_id: newPaper.uploaderId,
+        uploader_name: newPaper.uploaderName,
+        uploader_avatar: newPaper.uploaderAvatar || null,
+        title: newPaper.title,
+        abstract: newPaper.abstract,
+        paper_type: newPaper.paperType,
+        area_id: newPaper.areaId,
+        area_name: newPaper.areaName,
+        year: newPaper.year,
+        doi: newPaper.doi || null,
+        pdf_url: newPaper.pdfUrl,
+        cover_url: newPaper.coverUrl || null,
+        visibility: newPaper.visibility,
+        status: newPaper.status,
+        ai_assisted: newPaper.aiAssisted,
+        views: newPaper.views,
+        downloads: newPaper.downloads,
+        likes: newPaper.likes,
+        authors: newPaper.authors,
+        keywords: newPaper.keywords,
+        citations_apa: newPaper.citationsAPA,
+        citations_ieee: newPaper.citationsIEEE,
+      });
+
+      if (paperErr) {
+        console.error('Supabase paper insert error:', paperErr);
+      }
+    });
+
     showToast('Research paper published successfully!', 'success');
     return newPaper;
   };
 
   const updatePaper = (paperId: string, updates: Partial<Paper>) => {
     setPapers((prev) => prev.map((p) => (p.id === paperId ? { ...p, ...updates } : p)));
+
+    safeSupabaseCall(async (client) => {
+      const payload: Record<string, any> = {};
+      if (updates.title !== undefined) payload.title = updates.title;
+      if (updates.abstract !== undefined) payload.abstract = updates.abstract;
+      if (updates.paperType !== undefined) payload.paper_type = updates.paperType;
+      if (updates.areaId !== undefined) payload.area_id = updates.areaId;
+      if (updates.areaName !== undefined) payload.area_name = updates.areaName;
+      if (updates.authors !== undefined) payload.authors = updates.authors;
+      if (updates.keywords !== undefined) payload.keywords = updates.keywords;
+      if (updates.status !== undefined) payload.status = updates.status;
+      if (updates.likes !== undefined) payload.likes = updates.likes;
+      if (updates.downloads !== undefined) payload.downloads = updates.downloads;
+      if (updates.views !== undefined) payload.views = updates.views;
+      if (Object.keys(payload).length > 0) {
+        await client.from('papers').update(payload).eq('id', paperId);
+      }
+    });
+
     showToast('Paper details updated', 'success');
   };
 
   const deletePaper = (paperId: string) => {
     setPapers((prev) => prev.filter((p) => p.id !== paperId));
+
+    safeSupabaseCall(async (client) => {
+      await client.from('papers').delete().eq('id', paperId);
+    });
+
     showToast('Paper removed', 'info');
   };
 

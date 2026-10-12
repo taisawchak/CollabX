@@ -194,14 +194,17 @@ export const mapMessageFromRow = (row: any): Message => ({
 /**
  * Safely executes an async Supabase database or auth operation.
  * Silently catches and logs network or permission issues without disrupting UI flow.
+ * Returns the resolved data or null with the logged error.
  */
-export const safeSupabaseCall = async (
-  operation: (client: SupabaseClient) => PromiseLike<any> | Promise<any>
-): Promise<void> => {
-  if (!supabase) return;
+export const safeSupabaseCall = async <T = any>(
+  operation: (client: SupabaseClient) => PromiseLike<T> | Promise<T>
+): Promise<{ data: T | null; error: any }> => {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured') };
   try {
-    await operation(supabase);
+    const res = await operation(supabase);
+    return { data: res, error: null };
   } catch (err) {
     console.warn('Supabase operation warning:', err);
+    return { data: null, error: err };
   }
 };

@@ -33,10 +33,14 @@ export const ResearcherDashboardPage: React.FC<ResearcherDashboardPageProps> = (
     return null;
   }
 
-  // Projects supervised by this researcher (or all projects if administrator)
+  // Projects supervised by this researcher (matched by ID or email, or all projects if administrator)
   const myProjects = currentUser.role === 'admin'
     ? projects
-    : projects.filter((p) => p.supervisor.id === currentUser.id);
+    : projects.filter(
+        (p) =>
+          p.supervisor.id === currentUser.id ||
+          (currentUser.email && p.supervisor.email && p.supervisor.email.toLowerCase() === currentUser.email.toLowerCase())
+      );
   const myProjectIds = myProjects.map((p) => p.id);
 
   // Applications for my projects
@@ -56,7 +60,11 @@ export const ResearcherDashboardPage: React.FC<ResearcherDashboardPageProps> = (
   const myTeamMembers = members.filter((m) => myProjectIds.includes(m.projectId));
 
   // Papers authored by this researcher
-  const myPapers = papers.filter((p) => p.uploaderId === currentUser.id || p.authors.includes(currentUser.name));
+  const myPapers = papers.filter(
+    (p) =>
+      p.uploaderId === currentUser.id ||
+      p.authors.some((a) => a.toLowerCase().includes(currentUser.name.toLowerCase()))
+  );
 
   const lastName = currentUser.name.split(' ').slice(-1)[0];
 
@@ -273,6 +281,88 @@ export const ResearcherDashboardPage: React.FC<ResearcherDashboardPageProps> = (
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Supervised Research Projects Showcase */}
+      <div className="bg-white p-6 sm:p-7 rounded-3xl border border-[#E3EAF3] shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div>
+            <h3 className="font-extrabold text-base text-[#0B2A55] flex items-center gap-2">
+              <FolderKanban className="w-4 h-4 text-[#0B6BE6]" />
+              <span>Supervised Research Projects ({myProjects.length})</span>
+            </h3>
+            <p className="text-xs text-slate-500">Active research laboratories, recruitments, and published proposals</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate('/my-projects')}
+              className="text-xs font-bold text-[#0B6BE6] hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <span>Manage in My Projects</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => navigate('/projects/new')}
+              className="px-3 py-1.5 bg-[#0B6BE6] hover:bg-blue-600 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>+ Publish Project</span>
+            </button>
+          </div>
+        </div>
+
+        {myProjects.length === 0 ? (
+          <div className="py-8 text-center text-slate-400 space-y-2">
+            <FolderKanban className="w-8 h-8 mx-auto text-slate-300" />
+            <p className="text-xs font-semibold">No supervised projects yet.</p>
+            <button
+              onClick={() => navigate('/projects/new')}
+              className="mt-1 px-4 py-2 bg-[#0B6BE6] text-white text-xs font-bold rounded-xl cursor-pointer"
+            >
+              Publish First Project
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {myProjects.slice(0, 6).map((p) => (
+              <div
+                key={p.id}
+                onClick={() => navigate(`/projects/${p.id}`)}
+                className="p-4 rounded-2xl border border-[#E3EAF3] hover:border-[#0B6BE6] hover:shadow-md transition-all cursor-pointer bg-[#F5F8FC]/40 space-y-2 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-[10px] font-bold text-[#0B6BE6] bg-blue-50 px-2 py-0.5 rounded-md">
+                      {p.areaName}
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${
+                        p.status === 'approved' || p.status === 'active'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : p.status === 'pending'
+                          ? 'bg-amber-100 text-amber-800'
+                          : p.status === 'draft'
+                          ? 'bg-slate-100 text-slate-700'
+                          : 'bg-blue-100 text-blue-800'
+                      }`}
+                    >
+                      {p.status}
+                    </span>
+                  </div>
+                  <h4 className="font-extrabold text-sm text-[#0B2A55] line-clamp-1">{p.title}</h4>
+                  <p className="text-xs text-slate-500 line-clamp-2 mt-0.5">{p.summary}</p>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500">
+                  <span>{p.filledPositions} / {p.totalPositions} Positions</span>
+                  <span className="text-[#0B6BE6] font-bold flex items-center gap-0.5">
+                    View Project <ArrowRight className="w-3 h-3" />
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Latest Applications Table with Approve / Reject Actions matching Page 12 */}

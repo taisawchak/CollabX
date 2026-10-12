@@ -85,7 +85,8 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
       p.title.toLowerCase().includes(q) ||
       p.abstract.toLowerCase().includes(q) ||
       p.keywords.some((k) => k.toLowerCase().includes(q)) ||
-      p.authors.some((a) => a.toLowerCase().includes(q))
+      p.authors.some((a) => a.toLowerCase().includes(q)) ||
+      p.uploaderName.toLowerCase().includes(q)
   );
 
   const filteredUsers = users.filter(
@@ -122,6 +123,14 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
     navigate(`/projects?area=${slug}`);
   };
 
+  const handleSearchSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (globalSearchQuery.trim()) {
+      setIsGlobalSearchOpen(false);
+      navigate(`/search?q=${encodeURIComponent(globalSearchQuery.trim())}`);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div
@@ -129,13 +138,18 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Search Input */}
-        <div className="p-4 border-b border-[#E3EAF3] flex items-center gap-3">
+        <form onSubmit={handleSearchSubmit} className="p-4 border-b border-[#E3EAF3] flex items-center gap-3">
           <Search className="w-5 h-5 text-[#0B6BE6]" />
           <input
             type="text"
             autoFocus
             value={globalSearchQuery}
             onChange={(e) => setGlobalSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleSearchSubmit();
+              }
+            }}
             placeholder="Search projects, papers, areas, scholars globally..."
             className="w-full text-base font-medium text-[#0B2A55] placeholder-slate-400 focus:outline-hidden"
           />
@@ -153,7 +167,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
           >
             ESC
           </button>
-        </div>
+        </form>
 
         {/* Filter Tabs */}
         <div className="flex items-center gap-1 px-4 py-2 bg-slate-50 border-b border-[#E3EAF3] overflow-x-auto text-xs">
@@ -239,16 +253,31 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
                 <span className="text-[11px] text-slate-400">{filteredPapers.length} found</span>
               </div>
               <div className="space-y-2">
-                {filteredPapers.slice(0, 3).map((paper) => (
+                {filteredPapers.slice(0, 6).map((paper) => (
                   <div
                     key={paper.id}
                     onClick={() => handleSelectPaper(paper.id)}
                     className="p-3 rounded-xl hover:bg-[#F5F8FC] border border-slate-100 hover:border-[#E3EAF3] cursor-pointer transition-colors"
                   >
-                    <p className="text-sm font-bold text-[#0B2A55] line-clamp-1">{paper.title}</p>
-                    <p className="text-xs text-[#6B7A90] mt-1 line-clamp-1">
-                      {paper.authors.join(', ')} ({paper.year}) · {paper.areaName}
-                    </p>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+                            {paper.paperType}
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            {paper.year} · {paper.areaName}
+                          </span>
+                        </div>
+                        <p className="text-sm font-bold text-[#0B2A55] line-clamp-1 mt-1">{paper.title}</p>
+                        <p className="text-xs text-[#6B7A90] mt-0.5 line-clamp-2">
+                          {paper.abstract}
+                        </p>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Authors: {paper.authors.join(', ')} · Uploader: {paper.uploaderName}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>

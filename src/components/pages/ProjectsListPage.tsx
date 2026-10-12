@@ -103,8 +103,13 @@ export const ProjectsListPage: React.FC<ProjectsListPageProps> = ({ navigate, in
 
       // Status
       if (selectedStatuses.length > 0) {
+        const isOwner = currentUser && (
+          p.supervisor.id === currentUser.id ||
+          (currentUser.email && p.supervisor.email && p.supervisor.email.toLowerCase() === currentUser.email.toLowerCase()) ||
+          currentUser.role === 'admin'
+        );
         const pStatus = p.status === 'approved' ? 'Active' : p.status.charAt(0).toUpperCase() + p.status.slice(1);
-        if (!selectedStatuses.includes(pStatus)) {
+        if (!selectedStatuses.includes(pStatus) && !isOwner) {
           return false;
         }
       }
@@ -253,7 +258,7 @@ export const ProjectsListPage: React.FC<ProjectsListPageProps> = ({ navigate, in
           <div className="space-y-2 pt-2 border-t border-slate-100">
             <label className="text-xs font-bold text-[#0B2A55] uppercase tracking-wider">Status</label>
             <div className="space-y-1.5">
-              {['Active', 'Upcoming', 'Completed'].map((status) => {
+              {['Active', 'Upcoming', 'Pending', 'Completed'].map((status) => {
                 const checked = selectedStatuses.includes(status);
                 return (
                   <label

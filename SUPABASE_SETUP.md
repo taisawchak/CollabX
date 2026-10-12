@@ -65,15 +65,25 @@ npm run dev
 
 ---
 
-## 4. Multi-Account Verification Workflow
+## 4. Multi-Account Verification Workflow & Account Migration
 
+### Demo Accounts vs. Supabase Auth Users
+- `schema.sql` pre-seeds public profiles and sample records in the `profiles`, `projects`, `papers`, and `research_areas` tables.
+- However, Supabase Auth stores credentials separately in its internal `auth.users` table.
+- **To use Supabase Auth for the demo faculty/student accounts:**
+  1. Simply register on the `/register` page using the same email (e.g. `fahim@university.edu`, `ash@university.edu`), OR
+  2. In your Supabase Dashboard under **Authentication** > **Users**, click **Add user** > **Create user** with your desired password and set **Auto Confirm User?** to `true`.
+- The application will automatically bind the authenticated user to their matching profile in `profiles` and preserve their projects and publications!
+- If a user has not yet been registered in Supabase Auth, the application gracefully recognizes seed demo accounts with cryptographically salted SHA-256 verification so demonstration workflows never break.
+
+### Multi-Account Verification Workflow
 Once connected:
 1. **Student Account (`ash@university.edu` or custom registered student)**:
    - Browse projects and submit a join request / application with message and skills note.
    - The application is immediately saved in the Supabase `applications` table.
 2. **Supervisor Account (`fahim@university.edu` or project owner)**:
    - In another browser tab or window, open the Researcher Dashboard.
-   - The student's application appears immediately.
+   - The student's application appears immediately in real-time.
    - Click **Approve**.
    - The status updates to `approved`, the student is automatically added to `project_members`, and an in-app notification is dispatched to the student's notification center in real-time.
 3. **Admin Account (`admin@collabx.org`)**:

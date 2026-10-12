@@ -37,6 +37,14 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
     return null;
   });
 
+  // Keep reader in sync when selectedPaperId changes via URL navigation or search
+  React.useEffect(() => {
+    if (selectedPaperId) {
+      const match = papers.find((p) => p.id === selectedPaperId);
+      if (match) setReadingPaper(match);
+    }
+  }, [selectedPaperId, papers]);
+
   // Citation Tab State in Reader Modal
   const [citationFormat, setCitationFormat] = useState<'apa' | 'ieee' | 'bibtex'>('apa');
   const [copiedCitation, setCopiedCitation] = useState(false);
