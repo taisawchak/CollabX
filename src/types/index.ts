@@ -24,6 +24,8 @@ export interface User {
   passwordHash?: string;
   passwordSalt?: string;
   universityId?: string;
+  designation?: string;
+  orcid?: string;
 }
 
 export interface ResearchArea {

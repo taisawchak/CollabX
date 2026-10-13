@@ -7,49 +7,171 @@ import {
   EyeOff,
   GraduationCap,
   Building2,
+  Sparkles,
+  Award,
+  Globe,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Role } from '../../types';
+import { validateEmail } from '../../services/authService';
 
 interface RegisterPageProps {
   navigate: (path: string) => void;
 }
 
+const DEPARTMENTS = [
+  { value: 'CSE', label: 'CSE' },
+  { value: 'EEE', label: 'EEE' },
+  { value: 'IT', label: 'IT' },
+  { value: 'Software Engineering', label: 'Software Engineering' },
+  { value: 'Data Science & AI', label: 'Data Science & AI' },
+  { value: 'Civil Engineering', label: 'Civil Engineering' },
+  { value: 'Business Administration', label: 'Business Administration' },
+];
+
 export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
   const { register, showToast } = useApp();
 
+  // Role selection state (defaults to 'student')
+  const [role, setRole] = useState<Role>('student');
+
+  // Common form fields preserved across role switching
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [universityId, setUniversityId] = useState('');
-  const [department, setDepartment] = useState('Computer Science & Engineering');
-  const [role, setRole] = useState<Role>('student');
+  const [department, setDepartment] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Role-specific fields
+  // Student Scholar:
+  const [studentId, setStudentId] = useState('');
+
+  // Academic Researcher:
+  const [researcherId, setResearcherId] = useState('');
+  const [orcid, setOrcid] = useState('');
+
+  // Faculty Supervisor:
+  const [facultyId, setFacultyId] = useState('');
+  const [designation, setDesignation] = useState('');
+
+  // Form handling & feedback
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Helper for dynamic role label
+  const getRoleLabel = (r: Role): string => {
+    switch (r) {
+      case 'student':
+        return 'Student Scholar';
+      case 'researcher':
+        return 'Academic Researcher';
+      case 'supervisor':
+        return 'Faculty Supervisor';
+      default:
+        return 'Student Scholar';
+    }
+  };
+
+  // Helper for dynamic department display label
+  const getDepartmentDisplay = (dept: string): string => {
+    if (!dept) return '';
+    const d = dept.trim();
+    if (d === 'Computer Science & Engineering' || d === 'CSE') return 'CSE';
+    if (d === 'Electrical & Electronic Engineering' || d === 'EEE') return 'EEE';
+    if (d === 'Information Technology' || d === 'IT') return 'IT';
+    if (d === 'Software Engineering' || d === 'Software Eng.') return 'Software Engineering';
+    if (d === 'Data Science & Artificial Intelligence' || d === 'Data Science & AI') return 'Data Science & AI';
+    if (d === 'Civil Engineering' || d === 'Civil Eng.') return 'Civil Engineering';
+    if (d === 'Business Administration' || d === 'BBA') return 'Business Administration';
+    return d;
+  };
+
+  // Compute dynamic label (e.g. "Student Scholar • CSE" or "Faculty Supervisor")
+  const roleLabel = getRoleLabel(role);
+  const deptLabel = getDepartmentDisplay(department);
+  const dynamicLabel = deptLabel ? `${roleLabel} • ${deptLabel}` : roleLabel;
+
+  // Handle role switching: preserves common fields, clears errors
+  const handleRoleChange = (newRole: Role) => {
+    if (newRole !== role) {
+      setRole(newRole);
+      setErrorMessage(null);
+    }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
-    // Validation
+    // 1. Validate Full Name
     if (!name.trim()) {
       setErrorMessage('Please enter your full name.');
       return;
     }
 
-    if (!email.trim() || !email.includes('@')) {
+    // 2. Validate Academic Email
+    if (!email.trim() || !validateEmail(email)) {
       setErrorMessage('Please enter a valid institutional email address.');
       return;
     }
 
-    if (password.length < 8) {
+    // 3. Validate Department
+    if (!department.trim()) {
+      setErrorMessage('Please select your department.');
+      return;
+    }
+
+    // Role-specific validation
+    let resolvedUniversityId: string | undefined;
+    let resolvedDesignation: string | undefined;
+    let resolvedOrcid: string | undefined;
+
+    if (role === 'student') {
+      // Field 4: Student ID (Required)
+      if (!studentId.trim()) {
+        setErrorMessage('Please enter your Student ID.');
+        return;
+      }
+      resolvedUniversityId = studentId.trim();
+    } else if (role === 'researcher') {
+      // Field 4: Researcher/Institutional ID (Optional)
+      // Field 5: ORCID (Optional)
+      resolvedUniversityId = researcherId.trim() || undefined;
+
+      if (orcid.trim()) {
+        const cleanOrcid = orcid.trim();
+        // Standard ORCID 16-digit format with hyphens (e.g. 0000-0002-1825-0097 or with https://orcid.org/)
+        const orcidRegex = /^(https?:\/\/orcid\.org\/)?\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/i;
+        if (!orcidRegex.test(cleanOrcid)) {
+          setErrorMessage('Please enter a valid ORCID format (e.g. 0000-0002-1825-0097).');
+          return;
+        }
+        resolvedOrcid = cleanOrcid.replace(/^https?:\/\/orcid\.org\//i, '');
+      }
+    } else if (role === 'supervisor') {
+      // Field 4: Faculty/Employee ID (Required)
+      if (!facultyId.trim()) {
+        setErrorMessage('Please enter your Faculty/Employee ID.');
+        return;
+      }
+      // Field 5: Designation (Required)
+      if (!designation.trim()) {
+        setErrorMessage('Please enter your academic designation.');
+        return;
+      }
+      resolvedUniversityId = facultyId.trim();
+      resolvedDesignation = designation.trim();
+    }
+
+    // Validate Password requirements
+    if (!password || password.length < 8) {
       setErrorMessage('Password must be at least 8 characters long.');
       return;
     }
 
+    // Validate Password Confirmation
     if (password !== confirmPassword) {
       setErrorMessage('Passwords do not match. Please verify your password.');
       return;
@@ -63,8 +185,10 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
         email: email.trim(),
         password,
         role,
-        universityId: universityId.trim() || undefined,
-        department: department.trim() || undefined,
+        universityId: resolvedUniversityId,
+        department: deptLabel || department.trim(),
+        designation: resolvedDesignation,
+        orcid: resolvedOrcid,
       });
 
       if (result.success) {
@@ -90,7 +214,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 min-h-[calc(100vh-4rem)]">
         {/* Left Side: Centered Clean White Form */}
         <div className="flex items-center justify-center p-6 sm:p-10 lg:p-12 bg-white">
-          <div className="w-full max-w-[420px] space-y-4 py-4">
+          <div className="w-full max-w-[440px] space-y-4 py-4">
             {/* Prominent CollabX Brand Logo above the form */}
             <div
               onClick={() => navigate('/')}
@@ -113,29 +237,106 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
               </span>
             </div>
 
-            {/* Heading & Subtitle */}
-            <div className="text-center space-y-1">
+            {/* Heading & Subtitle with Dynamic Role & Department Label */}
+            <div className="text-center space-y-1.5">
               <h1 className="text-2xl sm:text-[28px] font-black text-[#0B2A55] tracking-tight">
                 Create an Account
               </h1>
+
+              {/* Dynamic Role and Department Label badge */}
+              <div className="flex items-center justify-center pt-0.5 pb-0.5">
+                <span
+                  data-testid="dynamic-role-department-label"
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#EEF4FF] border border-[#C7D9FE] text-[#0B2A55] text-xs sm:text-sm font-semibold tracking-tight shadow-2xs transition-all"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#0B6BE6]" />
+                  <span>{dynamicLabel}</span>
+                </span>
+              </div>
+
               <p className="text-sm text-slate-600 font-normal">
-                Join the research community
+                Join the research community as <span className="font-semibold text-[#0B2A55]">{dynamicLabel}</span>
               </p>
             </div>
 
-            {/* Error Message Alert Box */}
+            {/* Error Message Alert Box in CollabX Design */}
             {errorMessage && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg text-center animate-in fade-in">
+              <div
+                role="alert"
+                className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg text-center font-medium animate-in fade-in"
+              >
                 {errorMessage}
               </div>
             )}
 
             {/* Registration Form */}
-            <form onSubmit={handleRegister} className="space-y-3.5 pt-1">
-              {/* Full Name Field */}
+            <form onSubmit={handleRegister} noValidate className="space-y-3.5 pt-1">
+              {/* Role Selection Group */}
+              <div className="space-y-1.5 text-left">
+                <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
+                  Academic Role
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <label
+                    className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${
+                      role === 'student'
+                        ? 'border-[#0B6BE6] bg-[#EEF4FF] text-[#0B2A55] font-semibold ring-1 ring-[#0B6BE6] shadow-2xs'
+                        : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="role"
+                      value="student"
+                      checked={role === 'student'}
+                      onChange={() => handleRoleChange('student')}
+                      className="w-4 h-4 text-[#0B6BE6] border-slate-300 focus:ring-[#0B6BE6] cursor-pointer"
+                    />
+                    <span className="text-xs sm:text-sm leading-tight">Student Scholar</span>
+                  </label>
+
+                  <label
+                    className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${
+                      role === 'researcher'
+                        ? 'border-[#0B6BE6] bg-[#EEF4FF] text-[#0B2A55] font-semibold ring-1 ring-[#0B6BE6] shadow-2xs'
+                        : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="role"
+                      value="researcher"
+                      checked={role === 'researcher'}
+                      onChange={() => handleRoleChange('researcher')}
+                      className="w-4 h-4 text-[#0B6BE6] border-slate-300 focus:ring-[#0B6BE6] cursor-pointer"
+                    />
+                    <span className="text-xs sm:text-sm leading-tight">Academic Researcher</span>
+                  </label>
+
+                  <label
+                    className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer select-none transition-all ${
+                      role === 'supervisor'
+                        ? 'border-[#0B6BE6] bg-[#EEF4FF] text-[#0B2A55] font-semibold ring-1 ring-[#0B6BE6] shadow-2xs'
+                        : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="role"
+                      value="supervisor"
+                      checked={role === 'supervisor'}
+                      onChange={() => handleRoleChange('supervisor')}
+                      className="w-4 h-4 text-[#0B6BE6] border-slate-300 focus:ring-[#0B6BE6] cursor-pointer"
+                    />
+                    <span className="text-xs sm:text-sm leading-tight">Faculty Supervisor</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* FIELD 1: Full Name */}
               <div className="space-y-1 text-left">
                 <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
-                  Full Name
+                  Full Name <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
@@ -155,10 +356,10 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
                 </div>
               </div>
 
-              {/* Academic Email Field */}
+              {/* FIELD 2: Academic Email */}
               <div className="space-y-1 text-left">
                 <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
-                  Academic Email
+                  Academic Email <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
@@ -178,12 +379,40 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
                 </div>
               </div>
 
-              {/* Grid: University / Student ID & Department */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* University / Student ID Field */}
-                <div className="space-y-1 text-left">
+              {/* FIELD 3: Department */}
+              <div className="space-y-1 text-left">
+                <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
+                  Department <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                    <Building2 className="w-4 h-4 stroke-[1.75]" />
+                  </div>
+                  <select
+                    value={department}
+                    required
+                    onChange={(e) => {
+                      setDepartment(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    className="w-full bg-white border border-slate-300 text-xs sm:text-sm font-normal text-[#0B2A55] pl-10 pr-3 py-2 rounded-lg focus:outline-hidden focus:border-[#0B6BE6] focus:ring-1 focus:ring-[#0B6BE6] transition-colors appearance-none cursor-pointer"
+                  >
+                    <option value="">Select Department</option>
+                    {DEPARTMENTS.map((dept) => (
+                      <option key={dept.value} value={dept.value}>
+                        {dept.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* ROLE-SPECIFIC FIELDS */}
+              {/* ROLE: Student Scholar -> Field 4: Student ID */}
+              {role === 'student' && (
+                <div className="space-y-1 text-left animate-in fade-in duration-200">
                   <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
-                    University / Student ID
+                    Student ID <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
@@ -191,9 +420,10 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
                     </div>
                     <input
                       type="text"
-                      value={universityId}
+                      required
+                      value={studentId}
                       onChange={(e) => {
-                        setUniversityId(e.target.value);
+                        setStudentId(e.target.value);
                         if (errorMessage) setErrorMessage(null);
                       }}
                       placeholder="e.g. 2022-CSE-045"
@@ -201,81 +431,113 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
                     />
                   </div>
                 </div>
+              )}
 
-                {/* Department Selection */}
-                <div className="space-y-1 text-left">
-                  <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
-                    Department
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                      <Building2 className="w-4 h-4 stroke-[1.75]" />
+              {/* ROLE: Academic Researcher -> Field 4: Researcher ID (Optional) & Field 5: ORCID (Optional) */}
+              {role === 'researcher' && (
+                <>
+                  {/* Field 4: Researcher/Institutional ID (Optional) */}
+                  <div className="space-y-1 text-left animate-in fade-in duration-200">
+                    <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
+                      Researcher/Institutional ID{' '}
+                      <span className="text-slate-400 text-xs font-normal">(Optional)</span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                        <GraduationCap className="w-4 h-4 stroke-[1.75]" />
+                      </div>
+                      <input
+                        type="text"
+                        value={researcherId}
+                        onChange={(e) => {
+                          setResearcherId(e.target.value);
+                          if (errorMessage) setErrorMessage(null);
+                        }}
+                        placeholder="e.g. RES-2024-889 (Optional)"
+                        className="w-full bg-white border border-slate-300 text-sm font-normal text-[#0B2A55] placeholder-slate-400 pl-10 pr-3 py-2 rounded-lg focus:outline-hidden focus:border-[#0B6BE6] focus:ring-1 focus:ring-[#0B6BE6] transition-colors"
+                      />
                     </div>
-                    <select
-                      value={department}
-                      onChange={(e) => setDepartment(e.target.value)}
-                      className="w-full bg-white border border-slate-300 text-xs sm:text-sm font-normal text-[#0B2A55] pl-10 pr-3 py-2 rounded-lg focus:outline-hidden focus:border-[#0B6BE6] focus:ring-1 focus:ring-[#0B6BE6] transition-colors appearance-none"
-                    >
-                      <option value="Computer Science & Engineering">CSE</option>
-                      <option value="Electrical & Electronic Engineering">EEE</option>
-                      <option value="Information Technology">IT</option>
-                      <option value="Software Engineering">Software Eng.</option>
-                      <option value="Data Science & Artificial Intelligence">Data Science & AI</option>
-                      <option value="Civil Engineering">Civil Eng.</option>
-                      <option value="Business Administration">BBA</option>
-                    </select>
                   </div>
-                </div>
-              </div>
 
-              {/* Select Role Radio Buttons */}
-              <div className="space-y-1 text-left pt-0.5">
-                <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
-                  Academic Role
-                </label>
-                <div className="flex items-center gap-5 pt-0.5">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="radio"
-                      name="role"
-                      value="student"
-                      checked={role === 'student'}
-                      onChange={() => setRole('student')}
-                      className="w-4 h-4 text-[#0B6BE6] border-slate-300 focus:ring-[#0B6BE6] cursor-pointer"
-                    />
-                    <span className="text-sm text-[#0B2A55] font-normal">Student</span>
-                  </label>
+                  {/* Field 5: ORCID (Optional) */}
+                  <div className="space-y-1 text-left animate-in fade-in duration-200">
+                    <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
+                      ORCID <span className="text-slate-400 text-xs font-normal">(Optional)</span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                        <Globe className="w-4 h-4 stroke-[1.75]" />
+                      </div>
+                      <input
+                        type="text"
+                        value={orcid}
+                        onChange={(e) => {
+                          setOrcid(e.target.value);
+                          if (errorMessage) setErrorMessage(null);
+                        }}
+                        placeholder="e.g. 0000-0002-1825-0097 (Optional)"
+                        className="w-full bg-white border border-slate-300 text-sm font-normal text-[#0B2A55] placeholder-slate-400 pl-10 pr-3 py-2 rounded-lg focus:outline-hidden focus:border-[#0B6BE6] focus:ring-1 focus:ring-[#0B6BE6] transition-colors"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
 
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="radio"
-                      name="role"
-                      value="researcher"
-                      checked={role === 'researcher'}
-                      onChange={() => setRole('researcher')}
-                      className="w-4 h-4 text-[#0B6BE6] border-slate-300 focus:ring-[#0B6BE6] cursor-pointer"
-                    />
-                    <span className="text-sm text-[#0B2A55] font-normal">Researcher</span>
-                  </label>
+              {/* ROLE: Faculty Supervisor -> Field 4: Faculty/Employee ID & Field 5: Designation */}
+              {role === 'supervisor' && (
+                <>
+                  {/* Field 4: Faculty/Employee ID */}
+                  <div className="space-y-1 text-left animate-in fade-in duration-200">
+                    <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
+                      Faculty/Employee ID <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                        <GraduationCap className="w-4 h-4 stroke-[1.75]" />
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        value={facultyId}
+                        onChange={(e) => {
+                          setFacultyId(e.target.value);
+                          if (errorMessage) setErrorMessage(null);
+                        }}
+                        placeholder="e.g. FAC-CSE-102"
+                        className="w-full bg-white border border-slate-300 text-sm font-normal text-[#0B2A55] placeholder-slate-400 pl-10 pr-3 py-2 rounded-lg focus:outline-hidden focus:border-[#0B6BE6] focus:ring-1 focus:ring-[#0B6BE6] transition-colors"
+                      />
+                    </div>
+                  </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="radio"
-                      name="role"
-                      value="supervisor"
-                      checked={role === 'supervisor'}
-                      onChange={() => setRole('supervisor')}
-                      className="w-4 h-4 text-[#0B6BE6] border-slate-300 focus:ring-[#0B6BE6] cursor-pointer"
-                    />
-                    <span className="text-sm text-[#0B2A55] font-normal">Supervisor</span>
-                  </label>
-                </div>
-              </div>
+                  {/* Field 5: Designation */}
+                  <div className="space-y-1 text-left animate-in fade-in duration-200">
+                    <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
+                      Designation <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                        <Award className="w-4 h-4 stroke-[1.75]" />
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        value={designation}
+                        onChange={(e) => {
+                          setDesignation(e.target.value);
+                          if (errorMessage) setErrorMessage(null);
+                        }}
+                        placeholder="e.g. Associate Professor, Assistant Professor, Lecturer"
+                        className="w-full bg-white border border-slate-300 text-sm font-normal text-[#0B2A55] placeholder-slate-400 pl-10 pr-3 py-2 rounded-lg focus:outline-hidden focus:border-[#0B6BE6] focus:ring-1 focus:ring-[#0B6BE6] transition-colors"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Password Field */}
               <div className="space-y-1 text-left">
                 <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
-                  Password
+                  Password <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
@@ -306,7 +568,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ navigate }) => {
               {/* Confirm Password Field */}
               <div className="space-y-1 text-left">
                 <label className="text-xs sm:text-sm font-semibold text-[#0B2A55] block">
-                  Confirm Password
+                  Confirm Password <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">

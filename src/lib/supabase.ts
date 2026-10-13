@@ -58,6 +58,8 @@ export const mapProfileToUser = (row: any): User => ({
   status: row.status || 'active',
   createdAt: row.created_at || new Date().toISOString(),
   universityId: row.university_id,
+  designation: row.designation || row.headline,
+  orcid: row.orcid || row.links?.orcid,
 });
 
 export const mapProjectFromRow = (row: any): Project => ({

@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   links JSONB DEFAULT '{}'::jsonb,
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   university_id TEXT,
+  designation TEXT,
+  orcid TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

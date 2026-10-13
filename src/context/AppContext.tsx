@@ -95,6 +95,8 @@ interface AppContextType {
     role: Role;
     universityId?: string;
     department?: string;
+    designation?: string;
+    orcid?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 
@@ -603,6 +605,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     role: Role;
     universityId?: string;
     department?: string;
+    designation?: string;
+    orcid?: string;
   }): Promise<{ success: boolean; error?: string }> => {
     const cleanName = data.name.trim();
     const cleanEmail = data.email.trim().toLowerCase();
@@ -659,6 +663,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               role: data.role,
               department: data.department || 'Computer Science & Engineering',
               universityId: data.universityId,
+              designation: data.designation,
+              orcid: data.orcid,
             },
           },
         });
@@ -677,10 +683,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             role: data.role,
             department: data.department?.trim() || 'Computer Science & Engineering',
             institution: 'CollabX University',
-            headline: data.role === 'student' ? 'CSE Student · Researcher' : 'Faculty Researcher',
+            headline:
+              data.designation?.trim() ||
+              (data.role === 'student'
+                ? 'Student Scholar'
+                : data.role === 'supervisor'
+                ? 'Faculty Supervisor'
+                : 'Academic Researcher'),
             avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${cleanName}`,
             status: 'active',
             university_id: data.universityId?.trim(),
+            links: data.orcid?.trim() ? { orcid: data.orcid.trim() } : {},
           });
           if (profErr) {
             console.warn('Profile sync warning in Supabase:', profErr.message);
@@ -704,11 +717,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       department: data.department?.trim() || 'Computer Science & Engineering',
       institution: 'CollabX University',
       headline:
-        data.role === 'student'
-          ? 'CSE Student · Researcher'
+        data.designation?.trim() ||
+        (data.role === 'student'
+          ? 'Student Scholar'
           : data.role === 'supervisor'
-          ? 'Faculty Supervisor & Professor'
-          : 'Faculty Researcher',
+          ? 'Faculty Supervisor'
+          : 'Academic Researcher'),
       bio: 'Member of the CollabX research community.',
       avatar:
         data.role === 'student'
@@ -716,12 +730,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
       skills: ['Python', 'Research Writing'],
       interests: ['Artificial Intelligence', 'Data Science'],
-      links: {},
+      links: data.orcid?.trim() ? { orcid: data.orcid.trim() } : {},
       status: 'active',
       createdAt: new Date().toISOString(),
       passwordHash,
       passwordSalt: salt,
       universityId: data.universityId?.trim(),
+      designation: data.designation?.trim(),
+      orcid: data.orcid?.trim(),
     };
 
     setUsers((prev) => [...prev, newUser]);
