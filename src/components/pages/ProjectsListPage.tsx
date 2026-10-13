@@ -367,13 +367,22 @@ export const ProjectsListPage: React.FC<ProjectsListPageProps> = ({ navigate, in
 
                         {/* Supervisor info & seat counter */}
                         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 pt-0.5">
-                          <div className="flex items-center gap-1.5">
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/u/${p.supervisor.id}`);
+                            }}
+                            className="flex items-center gap-1.5 cursor-pointer group/sup hover:text-[#0B6BE6]"
+                            title={`View ${p.supervisor.name}'s profile`}
+                          >
                             <img
                               src={p.supervisor.avatar}
                               alt={p.supervisor.name}
-                              className="w-5 h-5 rounded-full object-cover"
+                              className="w-5 h-5 rounded-full object-cover group-hover/sup:ring-1 group-hover/sup:ring-[#0B6BE6]"
                             />
-                            <span className="font-semibold text-[#0B2A55]">{p.supervisor.name}</span>
+                            <span className="font-semibold text-[#0B2A55] group-hover/sup:text-[#0B6BE6] group-hover/sup:underline">
+                              {p.supervisor.name}
+                            </span>
                           </div>
                           <span>·</span>
                           <div className="flex items-center gap-1 text-slate-600">

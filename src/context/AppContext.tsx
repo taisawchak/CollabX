@@ -120,7 +120,13 @@ interface AppContextType {
   addMilestone: (projectId: string, title: string, dueDate: string, percent?: number) => void;
   updateMilestone: (id: string, updates: Partial<Milestone>) => void;
   deleteMilestone: (id: string) => void;
-  sendMessage: (projectId: string, body: string, attachment?: { name: string; size: string; url: string; type: string }) => void;
+  sendMessage: (
+    targetId: string,
+    body: string,
+    attachment?: { name: string; size: string; url: string; type: string },
+    recipient?: { id: string; name: string; avatar: string }
+  ) => void;
+  markConversationAsRead: (conversationId: string) => void;
   markNotificationsRead: () => void;
   markNotificationAsRead: (id: string) => void;
   deleteNotification: (id: string) => void;
@@ -1831,23 +1837,141 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Milestone deleted', 'info');
   };
 
-  const sendMessage = (projectId: string, body: string, attachment?: { name: string; size: string; url: string; type: string }) => {
+  const markConversationAsRead = (conversationId: string) => {
     if (!currentUser) return;
+    setMessages((prev) =>
+      prev.map((m) => {
+        const matches = m.conversationId === conversationId || m.projectId === conversationId;
+        if (matches && !m.isRead && (m.recipientId === currentUser.id || !m.recipientId)) {
+          return { ...m, isRead: true };
+        }
+        return m;
+      })
+    );
+
+    safeSupabaseCall(async (client) => {
+      await client
+        .from('messages')
+        .update({ is_read: true })
+        .eq('conversation_id', conversationId)
+        .eq('recipient_id', currentUser.id);
+    });
+  };
+
+  const sendMessage = (
+    targetId: string,
+    body: string,
+    attachment?: { name: string; size: string; url: string; type: string },
+    recipient?: { id: string; name: string; avatar: string }
+  ) => {
+    if (!currentUser) return;
+    const cleanBody = body.trim();
+    if (!cleanBody && !attachment) return;
+
+    // Determine if target is a project group or a direct conversation
+    const isProject = projects.some((p) => p.id === targetId);
+    const isDirect = !isProject || Boolean(recipient) || targetId.startsWith('dm_');
+
+    let convId = targetId;
+    let recId = recipient?.id;
+    let recName = recipient?.name;
+    let recAvatar = recipient?.avatar;
+
+    if (isDirect) {
+      if (!recId && targetId.startsWith('dm_')) {
+        const parts = targetId.split('_').filter((p) => p !== 'dm');
+        recId = parts.find((id) => id !== currentUser.id) || parts[0];
+      }
+      if (recId) {
+        convId = ['dm', ...[currentUser.id, recId].sort()].join('_');
+        if (!recName) {
+          const recUser = users.find((u) => u.id === recId);
+          recName = recUser?.name || 'Collaborator';
+          recAvatar = recUser?.avatar || '';
+        }
+      }
+    }
+
     const newMsg: Message = {
-      id: 'msg-' + Date.now(),
-      projectId,
+      id: 'msg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      projectId: isProject ? targetId : '',
+      conversationId: convId,
       senderId: currentUser.id,
       senderName: currentUser.name,
       senderAvatar: currentUser.avatar,
-      body,
+      recipientId: isDirect ? recId : undefined,
+      recipientName: isDirect ? recName : undefined,
+      recipientAvatar: isDirect ? recAvatar : undefined,
+      body: cleanBody,
       attachment,
       createdAt: new Date().toISOString(),
-      isRead: true,
+      isRead: isDirect ? false : true,
     };
+
     setMessages((prev) => [...prev, newMsg]);
 
+    // Dispatch real-time in-app notification to receiver
+    if (isDirect && recId && recId !== currentUser.id) {
+      const directNotif: Notification = {
+        id: 'notif-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        userId: recId,
+        type: 'message',
+        title: `Message from ${currentUser.name}`,
+        body: cleanBody.length > 70 ? cleanBody.substring(0, 67) + '...' : cleanBody,
+        link: `/messages?user=${currentUser.id}`,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      };
+      setNotifications((prev) => [directNotif, ...prev]);
+
+      safeSupabaseCall(async (client) => {
+        await client.from('notifications').insert({
+          id: directNotif.id,
+          user_id: directNotif.userId,
+          type: directNotif.type,
+          title: directNotif.title,
+          body: directNotif.body,
+          link: directNotif.link,
+          is_read: false,
+        });
+      });
+    } else if (isProject) {
+      const projectMembers = members.filter((m) => m.projectId === targetId && m.userId !== currentUser.id);
+      const targetProj = projects.find((p) => p.id === targetId);
+      const memberNotifsToInsert: any[] = [];
+
+      projectMembers.forEach((mem) => {
+        const projNotif: Notification = {
+          id: 'notif-' + Date.now() + '-' + mem.userId,
+          userId: mem.userId,
+          type: 'message',
+          title: `Discussion in ${targetProj?.title || 'Project'}`,
+          body: `${currentUser.name}: ${cleanBody.length > 60 ? cleanBody.substring(0, 57) + '...' : cleanBody}`,
+          link: `/projects/${targetId}/discussion`,
+          isRead: false,
+          createdAt: new Date().toISOString(),
+        };
+        setNotifications((prev) => [projNotif, ...prev]);
+        memberNotifsToInsert.push({
+          id: projNotif.id,
+          user_id: projNotif.userId,
+          type: projNotif.type,
+          title: projNotif.title,
+          body: projNotif.body,
+          link: projNotif.link,
+          is_read: false,
+        });
+      });
+
+      if (memberNotifsToInsert.length > 0) {
+        safeSupabaseCall(async (client) => {
+          await client.from('notifications').insert(memberNotifsToInsert);
+        });
+      }
+    }
+
     safeSupabaseCall(async (client) => {
-      // Ensure sender profile exists in profiles table before inserting message
+      // Ensure sender profile exists in profiles table
       await client.from('profiles').upsert({
         id: currentUser.id,
         email: currentUser.email,
@@ -1860,19 +1984,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'active',
       });
 
+      // If direct message recipient, ensure recipient profile exists
+      if (recId) {
+        const recUser = users.find((u) => u.id === recId);
+        if (recUser) {
+          await client.from('profiles').upsert({
+            id: recUser.id,
+            email: recUser.email,
+            name: recUser.name,
+            role: recUser.role,
+            department: recUser.department || 'Computer Science & Engineering',
+            institution: recUser.institution || 'Port City International University',
+            headline: recUser.headline || '',
+            avatar: recUser.avatar,
+            status: 'active',
+          });
+        }
+      }
+
       const { error: msgErr } = await client.from('messages').insert({
         id: newMsg.id,
-        project_id: newMsg.projectId,
+        project_id: isProject ? targetId : null,
+        conversation_id: newMsg.conversationId,
         sender_id: newMsg.senderId,
         sender_name: newMsg.senderName,
         sender_avatar: newMsg.senderAvatar,
+        recipient_id: newMsg.recipientId || null,
+        recipient_name: newMsg.recipientName || null,
+        recipient_avatar: newMsg.recipientAvatar || null,
         body: newMsg.body,
         attachment: newMsg.attachment || null,
-        is_read: true,
+        is_read: newMsg.isRead,
       });
 
       if (msgErr) {
-        console.error('Supabase message insert error:', msgErr);
+        console.warn('Supabase message insert notice:', msgErr.message);
       }
     });
   };
@@ -2409,6 +2555,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateMilestone,
         deleteMilestone,
         sendMessage,
+        markConversationAsRead,
         markNotificationsRead,
         markNotificationAsRead,
         deleteNotification,

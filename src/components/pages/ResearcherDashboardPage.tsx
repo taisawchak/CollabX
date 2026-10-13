@@ -14,6 +14,8 @@ import {
   ArrowRight,
   Eye,
   AlertCircle,
+  MessageSquare,
+  User as UserIcon,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Application } from '../../types';
@@ -436,10 +438,20 @@ export const ResearcherDashboardPage: React.FC<ResearcherDashboardPageProps> = (
                 {displayedApplications.map((app) => (
                   <tr key={app.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-3">
-                      <div className="flex items-center gap-2.5">
-                        <img src={app.userAvatar} alt={app.userName} className="w-8 h-8 rounded-full object-cover" />
+                      <div
+                        onClick={() => navigate(`/u/${app.userId}`)}
+                        className="flex items-center gap-2.5 cursor-pointer group"
+                        title={`View ${app.userName}'s profile`}
+                      >
+                        <img
+                          src={app.userAvatar}
+                          alt={app.userName}
+                          className="w-8 h-8 rounded-full object-cover group-hover:scale-105 transition-transform border border-slate-200"
+                        />
                         <div>
-                          <p className="font-bold text-[#0B2A55]">{app.userName}</p>
+                          <p className="font-bold text-[#0B2A55] group-hover:text-[#0B6BE6] transition-colors">
+                            {app.userName}
+                          </p>
                           <p className="text-[11px] text-slate-400">{app.userHeadline}</p>
                         </div>
                       </div>
@@ -465,13 +477,20 @@ export const ResearcherDashboardPage: React.FC<ResearcherDashboardPageProps> = (
                         </span>
                       )}
                     </td>
-                    <td className="p-3 text-right space-x-2 shrink-0">
+                    <td className="p-3 text-right space-x-1.5 shrink-0">
+                      <button
+                        onClick={() => navigate(`/messages?user=${app.userId}`)}
+                        className="p-1.5 text-slate-400 hover:text-[#0B6BE6] hover:bg-blue-50 rounded-lg transition-colors cursor-pointer inline-flex items-center"
+                        title={`Message ${app.userName}`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         onClick={() => {
                           setSelectedReviewApp(app);
                           setReviewFeedback(app.supervisorResponse || (app.status === 'approved' ? 'Welcome to our laboratory!' : ''));
                         }}
-                        className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#0B6BE6] font-bold rounded-lg cursor-pointer"
+                        className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-[#0B6BE6] font-bold rounded-lg cursor-pointer inline-flex items-center"
                         title="Review Application"
                       >
                         Review
@@ -518,20 +537,60 @@ export const ResearcherDashboardPage: React.FC<ResearcherDashboardPageProps> = (
               </button>
             </div>
 
-            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl">
-              <img
-                src={selectedReviewApp.userAvatar}
-                alt={selectedReviewApp.userName}
-                className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0"
-              />
-              <div className="min-w-0 flex-1 text-xs">
-                <p className="font-extrabold text-sm text-[#0B2A55]">{selectedReviewApp.userName}</p>
-                <p className="text-slate-500">{selectedReviewApp.userHeadline}</p>
-                <span className="text-[11px] text-slate-400 block mt-0.5">Applied on: {selectedReviewApp.appliedDate}</span>
+            <div className="p-3 bg-slate-50 rounded-2xl space-y-2.5">
+              <div className="flex items-center gap-3">
+                <img
+                  src={selectedReviewApp.userAvatar}
+                  alt={selectedReviewApp.userName}
+                  onClick={() => {
+                    setSelectedReviewApp(null);
+                    navigate(`/u/${selectedReviewApp.userId}`);
+                  }}
+                  className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0 cursor-pointer hover:ring-2 hover:ring-[#0B6BE6] transition-all"
+                  title={`View ${selectedReviewApp.userName}'s profile`}
+                />
+                <div className="min-w-0 flex-1 text-xs">
+                  <p
+                    onClick={() => {
+                      setSelectedReviewApp(null);
+                      navigate(`/u/${selectedReviewApp.userId}`);
+                    }}
+                    className="font-extrabold text-sm text-[#0B2A55] hover:text-[#0B6BE6] cursor-pointer hover:underline truncate"
+                  >
+                    {selectedReviewApp.userName}
+                  </p>
+                  <p className="text-slate-500 truncate">{selectedReviewApp.userHeadline}</p>
+                  <span className="text-[11px] text-slate-400 block mt-0.5">Applied on: {selectedReviewApp.appliedDate}</span>
+                </div>
+                <span className="px-2.5 py-1 rounded-full text-xs font-bold capitalize bg-white border border-slate-200 text-slate-700">
+                  {selectedReviewApp.status}
+                </span>
               </div>
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold capitalize bg-white border border-slate-200 text-slate-700">
-                {selectedReviewApp.status}
-              </span>
+
+              <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-200/60">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedReviewApp(null);
+                    navigate(`/u/${selectedReviewApp.userId}`);
+                  }}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-[#0B2A55] border border-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <UserIcon className="w-3.5 h-3.5 text-slate-500" />
+                  <span>View Profile</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedReviewApp(null);
+                    navigate(`/messages?user=${selectedReviewApp.userId}`);
+                  }}
+                  className="px-3 py-1.5 bg-[#0B6BE6] hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Message Candidate</span>
+                </button>
+              </div>
             </div>
 
             <div className="space-y-3 text-xs">

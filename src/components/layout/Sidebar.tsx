@@ -26,10 +26,15 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentPath, navigate, projectId, context }) => {
-  const { currentUser, notifications } = useApp();
+  const { currentUser, notifications, messages } = useApp();
   if (!currentUser) return null;
 
   const unreadCount = notifications.filter((n) => n.userId === currentUser.id && !n.isRead).length;
+  const unreadMessagesCount = messages.filter(
+    (m) =>
+      !m.isRead &&
+      (m.recipientId === currentUser.id || (!m.recipientId && m.senderId !== currentUser.id))
+  ).length;
 
   // Determine items based on user role and context
   const role = currentUser.role;
@@ -51,6 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, navigate, project
     if (role === 'admin') {
       return [
         { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
+        { label: 'Messages', path: '/messages', icon: MessageSquare, badgeCount: unreadMessagesCount },
         { label: 'Manage Users', path: '/admin/users', icon: Users },
         { label: 'Manage Projects', path: '/admin/projects', icon: FolderKanban },
         { label: 'Research Areas', path: '/research-areas', icon: BarChart2 },
@@ -64,6 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, navigate, project
       return [
         { label: 'Dashboard', path: '/researcher', icon: LayoutDashboard },
         { label: 'My Projects', path: '/my-projects', icon: FolderKanban },
+        { label: 'Messages', path: '/messages', icon: MessageSquare, badgeCount: unreadMessagesCount },
         { label: 'Applications', path: '/researcher#applications', icon: UserCheck },
         { label: 'Publish Project', path: '/projects/new', icon: Sparkles },
         { label: 'Research Papers', path: '/papers', icon: FileText },
@@ -77,6 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, navigate, project
     // Default Student role (Pages 7, 8, 9, 10, 11, 16, 17)
     return [
       { label: 'Welcome', path: '/dashboard', icon: LayoutDashboard },
+      { label: 'Messages', path: '/messages', icon: MessageSquare, badgeCount: unreadMessagesCount },
       { label: 'My Applications', path: '/applications', icon: FolderKanban },
       { label: 'Saved Projects', path: '/saved', icon: Bookmark },
       { label: 'My Projects', path: '/my-projects', icon: Users },

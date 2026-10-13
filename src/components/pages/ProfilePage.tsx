@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   User as UserIcon,
   Mail,
@@ -16,9 +16,13 @@ import {
   X,
   Plus,
   Trash2,
+  MessageSquare,
+  ArrowLeft,
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { User } from '../../types';
+import { supabase, isSupabaseConfigured, mapProfileToUser } from '../../lib/supabase';
 
 interface ProfilePageProps {
   userId?: string;
@@ -28,28 +32,100 @@ interface ProfilePageProps {
 export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, navigate }) => {
   const { currentUser, users, updateUserProfile, papers, projects, applications, members, showToast } = useApp();
 
-  if (!currentUser && !userId) {
-    return null;
-  }
+  const [fetchedUser, setFetchedUser] = useState<User | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(false);
 
-  const profileUser: User = userId ? users.find((u) => u.id === userId) || currentUser || users[0] : currentUser || users[0];
-  const isOwnProfile = currentUser?.id === profileUser.id;
+  // If a specific userId is requested via URL, look up in users or locally fetched remote profile
+  // CRITICAL: NEVER fall back to currentUser when an explicit userId is requested!
+  const profileUser: User | undefined = userId
+    ? users.find((u) => u.id === userId) || fetchedUser || undefined
+    : currentUser || undefined;
+
+  // Asynchronous remote lookup when direct URL or refresh occurs for a user not yet in users state
+  useEffect(() => {
+    let isCancelled = false;
+    if (userId && !users.some((u) => u.id === userId) && isSupabaseConfigured() && supabase) {
+      setIsLoadingProfile(true);
+      (async () => {
+        try {
+          const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+          if (!isCancelled && res.data && !res.error) {
+            const mapped = mapProfileToUser(res.data);
+            setFetchedUser(mapped);
+          }
+        } catch {
+          // Ignore network or query errors
+        } finally {
+          if (!isCancelled) {
+            setIsLoadingProfile(false);
+          }
+        }
+      })();
+    }
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId, users]);
 
   // Edit Profile Modal state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editName, setEditName] = useState(profileUser.name);
-  const [editHeadline, setEditHeadline] = useState(profileUser.headline);
-  const [editDepartment, setEditDepartment] = useState(profileUser.department);
-  const [editInstitution, setEditInstitution] = useState(profileUser.institution);
-  const [editBio, setEditBio] = useState(profileUser.bio);
-  const [editSkills, setEditSkills] = useState<string[]>([...profileUser.skills]);
+  const [editName, setEditName] = useState(profileUser?.name || '');
+  const [editHeadline, setEditHeadline] = useState(profileUser?.headline || '');
+  const [editDepartment, setEditDepartment] = useState(profileUser?.department || '');
+  const [editInstitution, setEditInstitution] = useState(profileUser?.institution || '');
+  const [editBio, setEditBio] = useState(profileUser?.bio || '');
+  const [editSkills, setEditSkills] = useState<string[]>(profileUser ? [...profileUser.skills] : []);
   const [newSkillInput, setNewSkillInput] = useState('');
-  const [editInterests, setEditInterests] = useState<string[]>([...profileUser.interests]);
+  const [editInterests, setEditInterests] = useState<string[]>(profileUser ? [...profileUser.interests] : []);
   const [newInterestInput, setNewInterestInput] = useState('');
-  const [editGithub, setEditGithub] = useState(profileUser.links.github || '');
-  const [editLinkedin, setEditLinkedin] = useState(profileUser.links.linkedin || '');
-  const [editScholar, setEditScholar] = useState(profileUser.links.googleScholar || '');
-  const [editAvatarPreview, setEditAvatarPreview] = useState(profileUser.avatar);
+  const [editGithub, setEditGithub] = useState(profileUser?.links.github || '');
+  const [editLinkedin, setEditLinkedin] = useState(profileUser?.links.linkedin || '');
+  const [editScholar, setEditScholar] = useState(profileUser?.links.googleScholar || '');
+  const [editAvatarPreview, setEditAvatarPreview] = useState(profileUser?.avatar || '');
+
+  if (isLoadingProfile) {
+    return (
+      <div className="p-12 max-w-xl w-full mx-auto text-center space-y-4 my-16">
+        <div className="bg-white rounded-3xl border border-[#E3EAF3] p-10 shadow-xs flex flex-col items-center justify-center space-y-3">
+          <Loader2 className="w-8 h-8 text-[#0B6BE6] animate-spin" />
+          <h3 className="text-base font-extrabold text-[#0B2A55]">Loading Researcher Profile...</h3>
+          <p className="text-xs text-slate-500">Retrieving academic credentials and research portfolio.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profileUser) {
+    return (
+      <div className="p-8 max-w-2xl w-full mx-auto text-center space-y-4 my-12">
+        <div className="bg-white rounded-3xl border border-[#E3EAF3] p-10 sm:p-12 shadow-xs space-y-4">
+          <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+            <UserIcon className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-black text-[#0B2A55]">Researcher Profile Not Found</h2>
+          <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+            The profile for user ID "{userId}" was not found or the account is no longer active in the university directory.
+          </p>
+          <div className="pt-4 flex items-center justify-center gap-3">
+            <button
+              onClick={() => navigate('/projects')}
+              className="px-5 py-2.5 bg-[#0B6BE6] hover:bg-blue-600 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs"
+            >
+              Browse Projects
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-[#0B2A55] text-xs font-bold rounded-xl transition-colors cursor-pointer"
+            >
+              Back to Home
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isOwnProfile = currentUser?.id === profileUser.id;
 
   // User stats
   const userApplicationsCount = applications.filter((a) => a.userId === profileUser.id).length;
@@ -196,34 +272,45 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, navigate }) =>
             </button>
           ) : (
             <button
-              onClick={() => showToast(`Initiating private messaging with ${profileUser.name}`, 'info')}
-              className="px-5 py-2.5 bg-[#0B6BE6] text-white font-extrabold text-xs rounded-xl shadow-xs"
+              onClick={() => {
+                if (!currentUser) {
+                  navigate(`/login?redirect=${encodeURIComponent(`/u/${profileUser.id}`)}`);
+                  return;
+                }
+                navigate(`/messages?user=${profileUser.id}`);
+              }}
+              className="px-5 py-2.5 bg-[#0B6BE6] hover:bg-blue-600 text-white font-extrabold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-2 cursor-pointer self-center sm:self-start"
             >
-              Contact Scholar
+              <MessageSquare className="w-4 h-4" />
+              <span>Message</span>
             </button>
           )}
         </div>
 
-        {/* 3 Stat Tiles matching Page 11 (Projects, Completed, Applications) */}
+        {/* Accurate Stat Tiles based on authentic database records */}
         <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-100 max-w-xl">
           <div className="p-3 bg-slate-50 rounded-2xl text-center">
-            <span className="text-xl sm:text-2xl font-black text-[#0B2A55]">{userJoinedCount || 5}</span>
+            <span className="text-xl sm:text-2xl font-black text-[#0B2A55]">{userProjects.length}</span>
             <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Projects</p>
           </div>
           <div className="p-3 bg-slate-50 rounded-2xl text-center">
-            <span className="text-xl sm:text-2xl font-black text-[#0E9F6E]">2</span>
-            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Completed</p>
+            <span className="text-xl sm:text-2xl font-black text-[#0E9F6E]">{userPapers.length}</span>
+            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Publications</p>
           </div>
           <div className="p-3 bg-slate-50 rounded-2xl text-center">
-            <span className="text-xl sm:text-2xl font-black text-[#0B6BE6]">{userApplicationsCount || 8}</span>
-            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Applications</p>
+            <span className="text-xl sm:text-2xl font-black text-[#0B6BE6]">
+              {isOwnProfile ? userApplicationsCount : profileUser.skills.length}
+            </span>
+            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">
+              {isOwnProfile ? 'Applications' : 'Core Skills'}
+            </p>
           </div>
         </div>
 
         {/* Bio & Social Links */}
         <div className="space-y-3 pt-2">
           <p className="text-xs sm:text-sm text-slate-700 leading-relaxed max-w-3xl">
-            {profileUser.bio || 'Undergraduate student and active lab researcher contributing to data science and ML.'}
+            {profileUser.bio || 'Active researcher contributing to collaborative academic projects and literature.'}
           </p>
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
@@ -296,6 +383,51 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, navigate }) =>
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Public Research Projects & Collaborations Section */}
+      <div className="bg-white p-6 sm:p-8 rounded-3xl border border-[#E3EAF3] shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-black text-[#0B2A55] flex items-center gap-2">
+            <FolderKanban className="w-5 h-5 text-[#0B6BE6]" />
+            <span>Research Projects & Collaborations ({userProjects.length})</span>
+          </h3>
+          <button
+            onClick={() => navigate('/projects')}
+            className="text-xs font-bold text-[#0B6BE6] hover:underline cursor-pointer"
+          >
+            Explore Projects Catalog →
+          </button>
+        </div>
+
+        {userProjects.length === 0 ? (
+          <p className="text-xs text-slate-400 py-3">No active project associations recorded.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {userProjects.map((p) => (
+              <div
+                key={p.id}
+                onClick={() => navigate(`/projects/${p.id}`)}
+                className="p-4 rounded-2xl bg-[#F5F8FC] border border-slate-100 hover:border-blue-200 cursor-pointer transition-colors flex items-center gap-3.5"
+              >
+                <img
+                  src={p.thumbnail}
+                  alt={p.title}
+                  className="w-14 h-12 rounded-xl object-cover shrink-0 border border-slate-200"
+                />
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] font-bold text-[#0B6BE6] bg-[#DCE6FB] px-2 py-0.5 rounded">
+                    {p.areaName}
+                  </span>
+                  <h4 className="text-xs font-bold text-[#0B2A55] truncate mt-1">{p.title}</h4>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {p.supervisor.id === profileUser.id ? 'Supervisor & Mentor' : 'Team Member'}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Published Papers Section */}

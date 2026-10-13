@@ -24,12 +24,44 @@ interface PapersListPageProps {
 }
 
 export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, selectedPaperId }) => {
-  const { papers, uploadPaper, incrementPaperDownload, likePaper, showToast, areas, currentUser } = useApp();
+  const { papers, uploadPaper, incrementPaperDownload, likePaper, showToast, areas, currentUser, users } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArea, setSelectedArea] = useState('all');
   const [selectedType, setSelectedType] = useState('all');
   const [sortBy, setSortBy] = useState<'latest' | 'views' | 'downloads'>('latest');
+
+  const renderAuthorList = (authorNames: string[]) => {
+    return authorNames.map((name, idx) => {
+      const cleanName = name.trim();
+      const matchedUser = users.find(
+        (u) =>
+          u.name.toLowerCase() === cleanName.toLowerCase() ||
+          cleanName.toLowerCase().includes(u.name.toLowerCase()) ||
+          u.name.toLowerCase().includes(cleanName.toLowerCase())
+      );
+
+      return (
+        <React.Fragment key={idx}>
+          {idx > 0 && ', '}
+          {matchedUser ? (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/u/${matchedUser.id}`);
+              }}
+              className="text-[#0B2A55] hover:text-[#0B6BE6] hover:underline font-semibold cursor-pointer"
+              title={`View ${matchedUser.name}'s profile`}
+            >
+              {cleanName}
+            </span>
+          ) : (
+            <span>{cleanName}</span>
+          )}
+        </React.Fragment>
+      );
+    });
+  };
 
   // Reader Modal
   const [readingPaper, setReadingPaper] = useState<Paper | null>(() => {
@@ -230,7 +262,9 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span className="truncate max-w-[150px] font-medium">{paper.authors.join(', ')}</span>
+              <div className="truncate max-w-[200px] font-medium">
+                {renderAuthorList(paper.authors)}
+              </div>
               <div className="flex items-center gap-3">
                 <span className="text-[#0B6BE6] font-bold group-hover:underline">Read PDF →</span>
               </div>
@@ -256,9 +290,25 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
                   )}
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-[#0B2A55]">{readingPaper.title}</h2>
-                <p className="text-xs text-slate-500">
-                  Authors: <span className="font-bold text-[#0B2A55]">{readingPaper.authors.join(', ')}</span>
-                </p>
+                <div className="text-xs text-slate-500 flex flex-wrap items-center gap-2">
+                  <span>Authors:</span>
+                  <span className="font-bold text-[#0B2A55]">{renderAuthorList(readingPaper.authors)}</span>
+                  {readingPaper.uploaderId && (
+                    <span className="pl-2 border-l border-slate-200">
+                      Uploaded by{' '}
+                      <span
+                        onClick={() => {
+                          setReadingPaper(null);
+                          navigate(`/u/${readingPaper.uploaderId}`);
+                        }}
+                        className="text-[#0B6BE6] hover:underline font-bold cursor-pointer"
+                        title={`View ${readingPaper.uploaderName}'s profile`}
+                      >
+                        {readingPaper.uploaderName}
+                      </span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               <button

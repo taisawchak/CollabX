@@ -10,6 +10,7 @@ import {
   FileText,
   Trash2,
   Check,
+  User as UserIcon,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Notification } from '../../types';
@@ -163,7 +164,29 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ navigate }
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                {(() => {
+                  const userMatch = n.link.startsWith('/messages?user=')
+                    ? n.link.split('user=')[1]?.split('&')[0]
+                    : n.link.startsWith('/u/')
+                    ? n.link.split('/u/')[1]?.split('?')[0]
+                    : null;
+                  if (!userMatch) return null;
+                  return (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        markNotificationAsRead(n.id);
+                        navigate(`/u/${userMatch}`);
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-[#0B6BE6] hover:bg-slate-100 rounded-lg cursor-pointer"
+                      title="View Researcher Profile"
+                    >
+                      <UserIcon className="w-3.5 h-3.5" />
+                    </button>
+                  );
+                })()}
+
                 <span className="text-[11px] text-slate-400">
                   {new Date(n.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                 </span>

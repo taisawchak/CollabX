@@ -9,6 +9,8 @@ import {
   ArrowRight,
   FileText,
   RotateCcw,
+  MessageSquare,
+  User as UserIcon,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Application } from '../../types';
@@ -19,7 +21,7 @@ interface MyApplicationsPageProps {
 }
 
 export const MyApplicationsPage: React.FC<MyApplicationsPageProps> = ({ navigate, currentPath }) => {
-  const { currentUser, applications, withdrawApplication } = useApp();
+  const { currentUser, applications, projects, withdrawApplication } = useApp();
 
   if (!currentUser) {
     return null;
@@ -209,9 +211,32 @@ export const MyApplicationsPage: React.FC<MyApplicationsPageProps> = ({ navigate
                   >
                     {app.projectTitle}
                   </h4>
-                  <p className="text-xs text-slate-500">
-                    Application submitted: {app.appliedDate}
-                  </p>
+                  {(() => {
+                    const targetProj = projects.find((p) => p.id === app.projectId);
+                    return (
+                      <p className="text-xs text-slate-500 flex items-center gap-1.5 flex-wrap">
+                        <span>Submitted: {app.appliedDate}</span>
+                        {targetProj && (
+                          <>
+                            <span>·</span>
+                            <span>Supervisor:</span>
+                            <span
+                              onClick={() => navigate(`/u/${targetProj.supervisor.id}`)}
+                              className="font-bold text-[#0B2A55] hover:text-[#0B6BE6] hover:underline cursor-pointer inline-flex items-center gap-1"
+                              title={`View ${targetProj.supervisor.name}'s profile`}
+                            >
+                              <img
+                                src={targetProj.supervisor.avatar}
+                                alt={targetProj.supervisor.name}
+                                className="w-4 h-4 rounded-full object-cover"
+                              />
+                              <span>{targetProj.supervisor.name}</span>
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -245,8 +270,61 @@ export const MyApplicationsPage: React.FC<MyApplicationsPageProps> = ({ navigate
             <div className="space-y-4 text-xs">
               <div>
                 <span className="text-slate-400 font-semibold block mb-1">Target Project</span>
-                <p className="font-extrabold text-sm text-[#0B2A55]">{selectedApp.projectTitle}</p>
+                <p
+                  onClick={() => {
+                    const pId = selectedApp.projectId;
+                    setSelectedApp(null);
+                    navigate(`/projects/${pId}`);
+                  }}
+                  className="font-extrabold text-sm text-[#0B2A55] hover:text-[#0B6BE6] cursor-pointer hover:underline"
+                >
+                  {selectedApp.projectTitle}
+                </p>
               </div>
+
+              {/* Supervisor Info & Direct Messaging */}
+              {(() => {
+                const targetProj = projects.find((p) => p.id === selectedApp.projectId);
+                if (!targetProj) return null;
+                return (
+                  <div className="p-3 bg-slate-50 rounded-2xl flex items-center justify-between gap-3">
+                    <div
+                      onClick={() => {
+                        setSelectedApp(null);
+                        navigate(`/u/${targetProj.supervisor.id}`);
+                      }}
+                      className="flex items-center gap-2.5 cursor-pointer group min-w-0"
+                      title={`View ${targetProj.supervisor.name}'s profile`}
+                    >
+                      <img
+                        src={targetProj.supervisor.avatar}
+                        alt={targetProj.supervisor.name}
+                        className="w-9 h-9 rounded-full object-cover border border-slate-200 group-hover:scale-105 transition-transform"
+                      />
+                      <div className="min-w-0">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                          Faculty Supervisor
+                        </span>
+                        <p className="font-extrabold text-xs text-[#0B2A55] group-hover:text-[#0B6BE6] transition-colors truncate">
+                          {targetProj.supervisor.name}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedApp(null);
+                        navigate(`/messages?user=${targetProj.supervisor.id}`);
+                      }}
+                      className="px-3 py-1.5 bg-[#0B6BE6] hover:bg-blue-600 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer flex items-center gap-1.5 shrink-0"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Message</span>
+                    </button>
+                  </div>
+                );
+              })()}
 
               <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl">
                 <div>

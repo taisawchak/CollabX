@@ -222,7 +222,18 @@ export const StudentDashboardPage: React.FC<StudentDashboardPageProps> = ({ navi
                       {project.title}
                     </h4>
                     <p className="text-[11px] text-[#6B7A90] truncate">
-                      Supervisor: {project.supervisor.name} · {project.filledPositions}/{project.totalPositions} positions
+                      Supervisor:{' '}
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/u/${project.supervisor.id}`);
+                        }}
+                        className="font-semibold text-[#0B2A55] hover:text-[#0B6BE6] hover:underline cursor-pointer"
+                        title={`View ${project.supervisor.name}'s profile`}
+                      >
+                        {project.supervisor.name}
+                      </span>{' '}
+                      · {project.filledPositions}/{project.totalPositions} positions
                     </p>
                   </div>
                 </div>

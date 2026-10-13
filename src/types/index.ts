@@ -166,10 +166,14 @@ export interface ProjectFile {
 
 export interface Message {
   id: string;
-  projectId: string;
+  projectId?: string;
+  conversationId?: string;
   senderId: string;
   senderName: string;
   senderAvatar: string;
+  recipientId?: string;
+  recipientName?: string;
+  recipientAvatar?: string;
   body: string;
   attachment?: {
     name: string;

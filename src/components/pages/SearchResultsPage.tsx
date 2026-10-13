@@ -132,7 +132,19 @@ export const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ navigate, 
                       {p.areaName}
                     </span>
                     <h4 className="font-bold text-sm text-[#0B2A55] truncate mt-1">{p.title}</h4>
-                    <p className="text-xs text-slate-500">Supervisor: {p.supervisor.name}</p>
+                    <p className="text-xs text-slate-500">
+                      Supervisor:{' '}
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/u/${p.supervisor.id}`);
+                        }}
+                        className="font-semibold text-[#0B2A55] hover:text-[#0B6BE6] hover:underline cursor-pointer"
+                        title={`View ${p.supervisor.name}'s profile`}
+                      >
+                        {p.supervisor.name}
+                      </span>
+                    </p>
                   </div>
                 </div>
               ))}

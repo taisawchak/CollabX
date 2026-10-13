@@ -17,6 +17,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  MessageSquare,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -26,13 +27,29 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate }) => {
-  const { currentUser, logout, notifications, markNotificationsRead, markNotificationAsRead, setIsGlobalSearchOpen } = useApp();
+  const {
+    currentUser,
+    logout,
+    notifications,
+    messages,
+    markNotificationsRead,
+    markNotificationAsRead,
+    setIsGlobalSearchOpen,
+  } = useApp();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isNotifDropdownOpen, setIsNotifDropdownOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const userNotifs = currentUser ? notifications.filter((n) => n.userId === currentUser.id) : [];
   const unreadCount = userNotifs.filter((n) => !n.isRead).length;
+
+  const unreadMessagesCount = currentUser
+    ? messages.filter(
+        (m) =>
+          !m.isRead &&
+          (m.recipientId === currentUser.id || (!m.recipientId && m.senderId !== currentUser.id))
+      ).length
+    : 0;
 
   const navLinks = [
     { label: 'Home', path: '/' },
@@ -124,7 +141,25 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate }) => {
             </button>
 
             {currentUser ? (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
+                {/* Messages Icon */}
+                <button
+                  onClick={() => {
+                    setIsNotifDropdownOpen(false);
+                    setIsUserMenuOpen(false);
+                    navigate('/messages');
+                  }}
+                  className="relative p-2 rounded-full text-[#6B7A90] hover:text-[#0B2A55] hover:bg-slate-100 transition-colors cursor-pointer"
+                  title="Messages & Discussions"
+                >
+                  <MessageSquare className="w-5 h-5" />
+                  {unreadMessagesCount > 0 && (
+                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#0B6BE6] text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
+                      {unreadMessagesCount}
+                    </span>
+                  )}
+                </button>
+
                 {/* Notification Bell & Dropdown */}
                 <div className="relative">
                   <button
@@ -259,6 +294,18 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPath, navigate }) => {
                         >
                           <UserIcon className="w-4 h-4 text-[#0E9F6E]" />
                           Profile
+                        </button>
+                        <button
+                          onClick={() => navigate('/messages')}
+                          className="w-full px-4 py-2 text-left text-xs text-[#0B2A55] hover:bg-[#F5F8FC] flex items-center gap-2"
+                        >
+                          <MessageSquare className="w-4 h-4 text-[#0B6BE6]" />
+                          <span>Messages</span>
+                          {unreadMessagesCount > 0 && (
+                            <span className="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#0B6BE6] text-white">
+                              {unreadMessagesCount}
+                            </span>
+                          )}
                         </button>
                         {currentUser.role === 'student' && (
                           <>

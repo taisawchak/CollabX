@@ -63,6 +63,8 @@ export const isPublicPath = (path: string): boolean => {
     cleanPath === '/projects' ||
     cleanPath === '/papers' ||
     cleanPath.startsWith('/papers/') ||
+    cleanPath.startsWith('/u/') ||
+    (cleanPath.startsWith('/profile/') && cleanPath !== '/profile') ||
     cleanPath === '/about' ||
     cleanPath === '/contact' ||
     cleanPath === '/faq' ||
@@ -102,7 +104,10 @@ export const isKnownRoute = (path: string): boolean => {
     cleanPath === '/saved' ||
     cleanPath === '/my-projects' ||
     cleanPath === '/profile' ||
+    cleanPath.startsWith('/profile/') ||
     cleanPath.startsWith('/u/') ||
+    cleanPath === '/messages' ||
+    cleanPath.startsWith('/messages/') ||
     cleanPath === '/notifications' ||
     cleanPath === '/calendar' ||
     cleanPath.startsWith('/ai-writer') ||
@@ -302,9 +307,29 @@ const AppContent: React.FC = () => {
       if (!currentUser) return <LoginPage navigate={navigate} />;
       return <MyProjectsPage navigate={navigate} />;
     }
+    // 9b. Unified Messages Hub (Direct & Group Discussions) - Requires Login
+    if (cleanPath === '/messages' || cleanPath.startsWith('/messages/')) {
+      if (!currentUser) return <LoginPage navigate={navigate} />;
+      const urlParams = new URLSearchParams(currentPath.split('?')[1] || '');
+      const userParam = urlParams.get('user') || undefined;
+      const projParam =
+        urlParams.get('project') || (cleanPath.startsWith('/messages/') ? cleanPath.split('/')[2] : undefined);
+      return (
+        <ProjectDiscussionPage
+          initialUserId={userParam}
+          initialProjectId={projParam}
+          navigate={navigate}
+        />
+      );
+    }
+
     if (cleanPath === '/profile') {
       if (!currentUser) return <LoginPage navigate={navigate} />;
       return <ProfilePage navigate={navigate} />;
+    }
+    if (cleanPath.startsWith('/profile/')) {
+      const uId = cleanPath.split('/')[2];
+      return <ProfilePage userId={uId} navigate={navigate} />;
     }
     if (cleanPath.startsWith('/u/')) {
       const uId = cleanPath.split('/')[2];

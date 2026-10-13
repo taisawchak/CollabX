@@ -9,6 +9,7 @@ import {
   Sparkles,
   Trash2,
   ExternalLink,
+  MessageSquare,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -94,14 +95,17 @@ export const TeamMembersPage: React.FC<TeamMembersPageProps> = ({ projectId, nav
                 className="p-4 sm:p-5 rounded-2xl border border-[#E3EAF3] hover:border-slate-300 transition-all flex items-center justify-between gap-4 bg-white"
               >
                 {/* Left: Avatar + Name + Position */}
-                <div className="flex items-center gap-4 min-w-0">
+                <div
+                  onClick={() => navigate(`/u/${mem.userId}`)}
+                  className="flex items-center gap-4 min-w-0 cursor-pointer group"
+                >
                   <img
                     src={mem.avatar}
                     alt={mem.name}
-                    className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0"
+                    className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0 group-hover:scale-105 transition-transform"
                   />
                   <div className="space-y-0.5 min-w-0">
-                    <h4 className="font-extrabold text-sm sm:text-base text-[#0B2A55] truncate">
+                    <h4 className="font-extrabold text-sm sm:text-base text-[#0B2A55] group-hover:text-[#0B6BE6] transition-colors truncate">
                       {mem.name}
                     </h4>
                     <p className="text-xs text-slate-500 truncate">{mem.positionTitle}</p>
@@ -141,6 +145,16 @@ export const TeamMembersPage: React.FC<TeamMembersPageProps> = ({ projectId, nav
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                           <span>View Profile</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setActiveMenuId(null);
+                            navigate(`/messages?user=${mem.userId}`);
+                          }}
+                          className="w-full px-4 py-2 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-[#0B6BE6]" />
+                          <span>Message</span>
                         </button>
                         <button
                           onClick={() => {

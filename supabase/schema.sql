@@ -152,18 +152,30 @@ CREATE TABLE IF NOT EXISTS public.saved_projects (
   UNIQUE(user_id, project_id)
 );
 
--- DISCUSSION MESSAGES
+-- DISCUSSION & DIRECT MESSAGES
 CREATE TABLE IF NOT EXISTS public.messages (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id TEXT REFERENCES public.projects(id) ON DELETE CASCADE,
+  conversation_id TEXT,
   sender_id TEXT NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   sender_name TEXT NOT NULL,
   sender_avatar TEXT,
+  recipient_id TEXT REFERENCES public.profiles(id) ON DELETE CASCADE,
+  recipient_name TEXT,
+  recipient_avatar TEXT,
   body TEXT NOT NULL,
   attachment JSONB,
   is_read BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Backward compatibility for existing databases:
+ALTER TABLE IF EXISTS public.messages ALTER COLUMN project_id DROP NOT NULL;
+ALTER TABLE IF EXISTS public.messages ADD COLUMN IF NOT EXISTS conversation_id TEXT;
+ALTER TABLE IF EXISTS public.messages ADD COLUMN IF NOT EXISTS recipient_id TEXT;
+ALTER TABLE IF EXISTS public.messages ADD COLUMN IF NOT EXISTS recipient_name TEXT;
+ALTER TABLE IF EXISTS public.messages ADD COLUMN IF NOT EXISTS recipient_avatar TEXT;
+
 
 -- PAPERS
 CREATE TABLE IF NOT EXISTS public.papers (

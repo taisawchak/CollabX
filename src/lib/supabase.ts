@@ -181,10 +181,17 @@ export const mapPaperFromRow = (row: any): Paper => ({
 
 export const mapMessageFromRow = (row: any): Message => ({
   id: row.id,
-  projectId: row.project_id,
+  projectId: row.project_id || '',
+  conversationId:
+    row.conversation_id ||
+    row.project_id ||
+    (row.recipient_id && row.sender_id ? ['dm', ...[row.sender_id, row.recipient_id].sort()].join('_') : ''),
   senderId: row.sender_id,
   senderName: row.sender_name || 'User',
   senderAvatar: row.sender_avatar || '',
+  recipientId: row.recipient_id || undefined,
+  recipientName: row.recipient_name || undefined,
+  recipientAvatar: row.recipient_avatar || undefined,
   body: row.body || '',
   attachment: row.attachment,
   createdAt: row.created_at || new Date().toISOString(),
