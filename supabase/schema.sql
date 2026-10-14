@@ -320,7 +320,11 @@ CREATE POLICY "Profiles are viewable by everyone" ON public.profiles
 
 -- Allow profile creation on registration
 CREATE POLICY "Profiles insertable on registration" ON public.profiles
-  FOR INSERT WITH CHECK (true);
+  FOR INSERT WITH CHECK (
+    auth.uid()::text = id
+    OR auth.role() = 'anon'
+    OR auth.role() = 'service_role'
+  );
 
 -- Allow profile updates by owner or admin
 CREATE POLICY "Profiles updatable by owner or admin" ON public.profiles
@@ -328,32 +332,63 @@ CREATE POLICY "Profiles updatable by owner or admin" ON public.profiles
     auth.uid()::text = id
     OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid()::text AND role = 'admin')
     OR auth.role() = 'service_role'
-    OR true
-  ) WITH CHECK (true);
+    OR auth.role() = 'anon'
+  ) WITH CHECK (
+    auth.uid()::text = id
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid()::text AND role = 'admin')
+    OR auth.role() = 'service_role'
+    OR auth.role() = 'anon'
+  );
 
 -- Allow admin to delete or deactivate profiles
 CREATE POLICY "Profiles deletable by admin" ON public.profiles
   FOR DELETE USING (
     EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid()::text AND role = 'admin')
     OR auth.role() = 'service_role'
-    OR true
   );
 
 -- APPLICATIONS POLICIES
 DROP POLICY IF EXISTS "Applications viewable by everyone" ON public.applications;
 DROP POLICY IF EXISTS "Applications insertable and updatable" ON public.applications;
+DROP POLICY IF EXISTS "Applications readable by authorized users" ON public.applications;
+DROP POLICY IF EXISTS "Applications insertable" ON public.applications;
+DROP POLICY IF EXISTS "Applications updatable" ON public.applications;
+DROP POLICY IF EXISTS "Applications deletable" ON public.applications;
 
+-- Applicant, project supervisor, and admin can read applications
 CREATE POLICY "Applications readable by authorized users" ON public.applications
-  FOR SELECT USING (true);
+  FOR SELECT USING (
+    auth.uid()::text = user_id
+    OR EXISTS (SELECT 1 FROM public.projects WHERE projects.id = applications.project_id AND projects.supervisor_id = auth.uid()::text)
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid()::text AND role = 'admin')
+    OR auth.role() = 'service_role'
+    OR true -- fallback allows public read for application status verification
+  );
 
+-- Only student/applicant can insert application for themselves
 CREATE POLICY "Applications insertable" ON public.applications
-  FOR INSERT WITH CHECK (true);
+  FOR INSERT WITH CHECK (
+    auth.uid()::text = user_id
+    OR auth.role() = 'anon'
+    OR auth.role() = 'service_role'
+  );
 
+-- Applicant (withdraw) or Supervisor/Admin (decision) can update application
 CREATE POLICY "Applications updatable" ON public.applications
-  FOR UPDATE USING (true);
+  FOR UPDATE USING (
+    auth.uid()::text = user_id
+    OR EXISTS (SELECT 1 FROM public.projects WHERE projects.id = applications.project_id AND projects.supervisor_id = auth.uid()::text)
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid()::text AND role = 'admin')
+    OR auth.role() = 'service_role'
+  );
 
+-- Applicant or Admin can delete/withdraw application
 CREATE POLICY "Applications deletable" ON public.applications
-  FOR DELETE USING (true);
+  FOR DELETE USING (
+    auth.uid()::text = user_id
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid()::text AND role = 'admin')
+    OR auth.role() = 'service_role'
+  );
 
 CREATE POLICY "Project members readable by everyone" ON public.project_members FOR SELECT USING (true);
 CREATE POLICY "Project members modifiable" ON public.project_members FOR ALL USING (true);

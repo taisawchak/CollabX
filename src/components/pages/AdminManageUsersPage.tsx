@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   Search,
@@ -52,6 +52,11 @@ export const AdminManageUsersPage: React.FC<AdminManageUsersPageProps> = ({ navi
     }
   };
 
+  // Automatically fetch latest registered users from shared database on component mount
+  useEffect(() => {
+    handleRefresh();
+  }, []);
+
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -73,7 +78,10 @@ export const AdminManageUsersPage: React.FC<AdminManageUsersPageProps> = ({ navi
       return (
         u.name.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
-        u.department.toLowerCase().includes(q)
+        u.department.toLowerCase().includes(q) ||
+        (u.universityId && u.universityId.toLowerCase().includes(q)) ||
+        (u.designation && u.designation.toLowerCase().includes(q)) ||
+        (u.orcid && u.orcid.toLowerCase().includes(q))
       );
     }
     return true;

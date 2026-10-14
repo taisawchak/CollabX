@@ -662,6 +662,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const authUser = serverJson.user as User;
           setCurrentUserId(authUser.id);
           setUsers((prev) => [authUser, ...prev.filter((u) => u.id !== authUser.id)]);
+          syncWithSharedServer();
           showToast(`Welcome back, ${authUser.name}!`, 'success');
           return { success: true, user: authUser };
         }
@@ -790,6 +791,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // 4. Authenticate session
     setCurrentUserId(user.id);
+    syncWithSharedServer();
     showToast(`Welcome back, ${user.name}!`, 'success');
     return { success: true, user };
   };
@@ -882,7 +884,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return { success: false, error: signUpErr.message || 'Supabase authentication registration failed.' };
         } else if (signUpData?.user) {
           supabaseUserId = signUpData.user.id;
-          const { error: profErr } = await supabase.from('profiles').upsert({
+
+          const profilePayload = {
             id: supabaseUserId,
             email: cleanEmail,
             name: cleanName,
@@ -896,17 +899,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 : data.role === 'supervisor'
                 ? 'Faculty Supervisor'
                 : 'Academic Researcher'),
-            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${cleanName}`,
+            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanName)}`,
             status: 'active',
-            university_id: data.universityId?.trim(),
+            university_id: data.universityId?.trim() || null,
+            designation: data.designation?.trim() || null,
+            orcid: data.orcid?.trim() || null,
             links: data.orcid?.trim() ? { orcid: data.orcid.trim() } : {},
-          });
+          };
+
+          // 1. Attempt upsert into profiles
+          const { error: profErr } = await supabase.from('profiles').upsert(profilePayload);
           if (profErr) {
-            console.warn('Profile sync warning in Supabase:', profErr.message);
+            console.warn('Profile upsert attempt error in Supabase:', profErr.message);
+            // 2. Attempt direct insert fallback
+            const { error: insertErr } = await supabase.from('profiles').insert(profilePayload);
+            if (insertErr) {
+              console.warn('Profile direct insert fallback error in Supabase:', insertErr.message);
+              // 3. Check if Postgres on_auth_user_created trigger already created the profile row
+              const { data: triggerProfile } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('id', supabaseUserId)
+                .maybeSingle();
+
+              if (!triggerProfile) {
+                return {
+                  success: false,
+                  error: `Account created in Auth, but profile initialization failed (${insertErr.message || profErr.message}). Please contact an administrator or verify Supabase RLS.`,
+                };
+              }
+            }
           }
         }
       } catch (err: any) {
-        console.warn('Supabase signUp error fallback to local storage:', err);
+        console.warn('Supabase signUp error:', err);
         return { success: false, error: err.message || 'Error communicating with Supabase authentication server.' };
       }
     }
@@ -952,6 +978,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: supabaseUserId || newUser.id,
           name: cleanName,
           email: cleanEmail,
           password: data.password,
@@ -1008,6 +1035,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     if (found) {
       setCurrentUserId(found.id);
+      syncWithSharedServer();
       showToast(`Authenticated as ${found.name} (${found.role})`, 'info');
     }
   };
@@ -1196,6 +1224,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     });
 
+    // Persist to shared persistent server database across devices
+    fetch('/api/applications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(appRecord),
+    }).catch(() => {});
+
     showToast('Application submitted successfully!', 'success');
     return true;
   };
@@ -1226,6 +1261,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     safeSupabaseCall(async (client) => {
       await client.from('applications').update({ status: 'withdrawn' }).eq('id', appId);
     });
+
+    // Persist withdrawal to shared server database
+    fetch(`/api/applications/${appId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'withdrawn' }),
+    }).catch(() => {});
 
     addActivityLog({
       userId: currentUser.id,
@@ -1395,6 +1437,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
       });
 
+      // Persist decision to shared server database
+      fetch(`/api/applications/${appId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved', responseNote }),
+      }).catch(() => {});
+
       showToast(`Application approved! ${targetApp.userName} is now a team member.`, 'success');
     } else {
       // Rejection branch: updates status and optional feedback, does NOT add to members
@@ -1460,6 +1509,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             is_read: false,
           });
       });
+
+      // Persist rejection decision to shared server database
+      fetch(`/api/applications/${appId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'rejected', responseNote }),
+      }).catch(() => {});
 
       showToast('Application marked as rejected', 'info');
     }

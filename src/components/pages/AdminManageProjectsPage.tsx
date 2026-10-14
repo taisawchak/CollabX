@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FolderKanban,
   Search,
@@ -10,6 +10,7 @@ import {
   Plus,
   ArrowRight,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Project } from '../../types';
@@ -19,7 +20,15 @@ interface AdminManageProjectsPageProps {
 }
 
 export const AdminManageProjectsPage: React.FC<AdminManageProjectsPageProps> = ({ navigate }) => {
-  const { currentUser, projects, approveProjectByAdmin, rejectProjectByAdmin, deleteProject } = useApp();
+  const {
+    currentUser,
+    projects,
+    approveProjectByAdmin,
+    rejectProjectByAdmin,
+    deleteProject,
+    refreshUsersFromDatabase,
+    showToast,
+  } = useApp();
 
   if (!currentUser || currentUser.role !== 'admin') {
     return null;
@@ -28,6 +37,23 @@ export const AdminManageProjectsPage: React.FC<AdminManageProjectsPageProps> = (
   const [tab, setTab] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshUsersFromDatabase();
+      showToast('Database synced: Projects and users up to date.', 'success');
+    } catch {
+      showToast('Error syncing database.', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    handleRefresh();
+  }, []);
 
   const pendingCount = projects.filter((p) => p.status === 'pending').length;
   const approvedCount = projects.filter((p) => p.status === 'approved' || p.status === 'active').length;
@@ -67,6 +93,16 @@ export const AdminManageProjectsPage: React.FC<AdminManageProjectsPageProps> = (
             />
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           </div>
+
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="p-2.5 bg-white border border-[#E3EAF3] hover:bg-slate-50 text-[#0B2A55] rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+            title="Force sync database"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-blue-600' : 'text-slate-600'}`} />
+            <span className="hidden sm:inline font-bold text-xs">Sync DB</span>
+          </button>
 
           <button
             onClick={() => navigate('/projects/new')}

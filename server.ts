@@ -222,7 +222,9 @@ async function startServer() {
       const salt = crypto.randomBytes(16).toString('hex');
       const passwordHash = hashPassword(password, salt);
 
-      const userId = 'user-' + Date.now().toString(36) + '-' + crypto.randomBytes(3).toString('hex');
+      const userId = (req.body.id && typeof req.body.id === 'string')
+        ? req.body.id
+        : 'user-' + Date.now().toString(36) + '-' + crypto.randomBytes(3).toString('hex');
 
       const newUser: User = {
         id: userId,
@@ -535,7 +537,7 @@ async function startServer() {
   app.put('/api/applications/:id', (req, res) => {
     try {
       const { id } = req.params;
-      const { status } = req.body;
+      const { status, responseNote } = req.body;
       const index = db.applications.findIndex((a) => a.id === id);
 
       if (index === -1) {
@@ -544,6 +546,12 @@ async function startServer() {
 
       const appRecord = db.applications[index];
       appRecord.status = status;
+      if (responseNote !== undefined) {
+        appRecord.supervisorResponse = responseNote;
+      }
+      if (status === 'approved' || status === 'rejected') {
+        appRecord.decidedAt = new Date().toISOString();
+      }
 
       // If approved, add student to project members
       if (status === 'approved') {
@@ -601,6 +609,21 @@ async function startServer() {
 
       saveDatabase(db);
       res.json({ success: true, application: appRecord });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/applications/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const initialLen = db.applications.length;
+      db.applications = db.applications.filter((a) => a.id !== id);
+      if (db.applications.length === initialLen) {
+        return res.status(404).json({ success: false, error: 'Application not found.' });
+      }
+      saveDatabase(db);
+      res.json({ success: true, message: 'Application deleted.' });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

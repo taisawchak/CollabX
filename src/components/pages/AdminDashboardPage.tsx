@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   FolderKanban,
@@ -44,6 +44,11 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ navigate
       setIsRefreshing(false);
     }
   };
+
+  // Automatically refresh latest database counts on admin dashboard mount
+  useEffect(() => {
+    handleRefresh();
+  }, []);
 
   if (!currentUser || currentUser.role !== 'admin') {
     return null;
