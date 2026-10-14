@@ -373,6 +373,94 @@ CREATE POLICY "Papers insertable and updatable" ON public.papers FOR ALL USING (
 CREATE POLICY "Activity logs readable and insertable" ON public.activity_logs FOR ALL USING (true);
 
 -- ==============================================================================
+-- 4. AUTOMATIC PROFILE CREATION TRIGGER & RECONCILIATION
+-- ==============================================================================
+-- When a user registers through Supabase Auth, automatically create their profile row
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (
+    id,
+    email,
+    name,
+    role,
+    department,
+    institution,
+    headline,
+    avatar,
+    status,
+    university_id,
+    designation,
+    orcid
+  )
+  VALUES (
+    NEW.id::text,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
+    COALESCE(NEW.raw_user_meta_data->>'role', 'student'),
+    COALESCE(NEW.raw_user_meta_data->>'department', 'Computer Science & Engineering'),
+    'Port City International University',
+    COALESCE(NEW.raw_user_meta_data->>'designation', 
+      CASE 
+        WHEN NEW.raw_user_meta_data->>'role' = 'supervisor' THEN 'Faculty Supervisor'
+        WHEN NEW.raw_user_meta_data->>'role' = 'researcher' THEN 'Academic Researcher'
+        WHEN NEW.raw_user_meta_data->>'role' = 'admin' THEN 'System Administrator'
+        ELSE 'Student Scholar'
+      END
+    ),
+    COALESCE(NEW.raw_user_meta_data->>'avatar', 'https://api.dicebear.com/7.x/avataaars/svg?seed=' || encode(NEW.email::bytea, 'hex')),
+    'active',
+    NEW.raw_user_meta_data->>'universityId',
+    NEW.raw_user_meta_data->>'designation',
+    NEW.raw_user_meta_data->>'orcid'
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    name = COALESCE(EXCLUDED.name, public.profiles.name),
+    role = COALESCE(EXCLUDED.role, public.profiles.role),
+    department = COALESCE(EXCLUDED.department, public.profiles.department),
+    updated_at = NOW();
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Bind trigger to auth.users (if auth schema is accessible)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'auth' AND table_name = 'users') THEN
+    DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+    CREATE TRIGGER on_auth_user_created
+      AFTER INSERT ON auth.users
+      FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+    -- Safe reconciliation: Populate profile records for any existing auth.users without profiles
+    INSERT INTO public.profiles (
+      id, email, name, role, department, institution, headline, avatar, status, university_id, designation, orcid
+    )
+    SELECT
+      u.id::text,
+      u.email,
+      COALESCE(u.raw_user_meta_data->>'name', split_part(u.email, '@', 1)),
+      COALESCE(u.raw_user_meta_data->>'role', 'student'),
+      COALESCE(u.raw_user_meta_data->>'department', 'Computer Science & Engineering'),
+      'Port City International University',
+      COALESCE(u.raw_user_meta_data->>'designation', 'Student Scholar'),
+      'https://api.dicebear.com/7.x/avataaars/svg?seed=' || encode(u.email::bytea, 'hex'),
+      'active',
+      u.raw_user_meta_data->>'universityId',
+      u.raw_user_meta_data->>'designation',
+      u.raw_user_meta_data->>'orcid'
+    FROM auth.users u
+    LEFT JOIN public.profiles p ON p.id = u.id::text
+    WHERE p.id IS NULL
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL; -- Gracefully continue if auth schema privileges are limited
+END $$;
+
+-- ==============================================================================
 -- 5. INITIAL SEED DATA
 -- ==============================================================================
 
