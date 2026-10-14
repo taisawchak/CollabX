@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   Role,
   User,
@@ -146,6 +146,7 @@ interface AppContextType {
   addUserByAdmin: (userData: Partial<User>) => void;
   updateUserByAdmin: (userId: string, updates: Partial<User>) => void;
   deleteUserByAdmin: (userId: string) => void;
+  refreshUsersFromDatabase: () => Promise<{ count: number; error?: string }>;
   saveAiDraft: (draft: AiDraft) => void;
   deleteAiDraft: (id: string) => void;
   getMatchScore: (project: Project, user?: User | null) => { score: number; reasons: string[] };
@@ -246,6 +247,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             remoteUsers.forEach((ru) => map.set(ru.id, ru));
             return Array.from(map.values());
           });
+        } else if (profilesRes.error) {
+          console.error('Supabase profiles query error:', profilesRes.error.message);
         }
 
         if (!projectsRes.error && projectsRes.data && projectsRes.data.length > 0) {
@@ -317,15 +320,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               role: (authUser.user_metadata?.role as Role) || 'student',
               department: authUser.user_metadata?.department || 'Computer Science & Engineering',
               institution: 'CollabX University',
-              headline: authUser.user_metadata?.role === 'supervisor' ? 'Faculty Supervisor' : 'Researcher',
+              headline:
+                authUser.user_metadata?.designation ||
+                (authUser.user_metadata?.role === 'supervisor'
+                  ? 'Faculty Supervisor'
+                  : authUser.user_metadata?.role === 'researcher'
+                  ? 'Academic Researcher'
+                  : 'Student Scholar'),
               bio: '',
               avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.email || authUser.id}`,
               skills: ['Python', 'Research Writing'],
               interests: ['Artificial Intelligence'],
-              links: {},
+              links: authUser.user_metadata?.orcid ? { orcid: authUser.user_metadata.orcid } : {},
               status: 'active' as const,
               createdAt: authUser.created_at || new Date().toISOString(),
             };
+
+            // If profile is missing in Supabase, reconcile and save it now
+            if (!userProfile) {
+              await client.from('profiles').upsert({
+                id: mappedUser.id,
+                email: mappedUser.email,
+                name: mappedUser.name,
+                role: mappedUser.role,
+                department: mappedUser.department,
+                institution: mappedUser.institution,
+                headline: mappedUser.headline,
+                avatar: mappedUser.avatar,
+                status: mappedUser.status,
+                university_id: authUser.user_metadata?.universityId || null,
+                designation: authUser.user_metadata?.designation || null,
+                orcid: authUser.user_metadata?.orcid || null,
+                links: mappedUser.links,
+              });
+            }
+
             setUsers((prev) => [mappedUser, ...prev.filter((u) => u.id !== mappedUser.id)]);
             setCurrentUserId(authUser.id);
           }
@@ -333,9 +362,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           console.warn('Could not inspect Supabase session:', sessErr);
         }
 
-        // Realtime Subscription
+        // Realtime Subscription across all collaborative entities including PROFILES
         const channel = client
           .channel('collabx_realtime_sync')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const newU = mapProfileToUser(payload.new);
+              setUsers((prev) => [newU, ...prev.filter((u) => u.id !== newU.id)]);
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedU = mapProfileToUser(payload.new);
+              setUsers((prev) => prev.map((u) => (u.id === updatedU.id ? updatedU : u)));
+            } else if (payload.eventType === 'DELETE' && payload.old?.id) {
+              setUsers((prev) => prev.filter((u) => u.id !== payload.old.id));
+            }
+          })
           .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, (payload) => {
             if (payload.eventType === 'INSERT') {
               const newApp = mapApplicationFromRow(payload.new);
@@ -408,6 +448,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const u = mapProfileToUser(pRow);
               setUsers((prev) => [u, ...prev.filter((x) => x.id !== u.id)]);
               setCurrentUserId(u.id);
+            } else {
+              const u: User = {
+                id: session.user.id,
+                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
+                email: session.user.email || '',
+                role: (session.user.user_metadata?.role as Role) || 'student',
+                department: session.user.user_metadata?.department || 'Computer Science & Engineering',
+                institution: 'CollabX University',
+                headline: session.user.user_metadata?.headline || 'Student Scholar',
+                bio: '',
+                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${session.user.email || session.user.id}`,
+                skills: ['Python', 'Research Writing'],
+                interests: ['Artificial Intelligence'],
+                links: {},
+                status: 'active',
+                createdAt: session.user.created_at || new Date().toISOString(),
+              };
+              await client.from('profiles').upsert({
+                id: u.id,
+                email: u.email,
+                name: u.name,
+                role: u.role,
+                department: u.department,
+                institution: u.institution,
+                headline: u.headline,
+                avatar: u.avatar,
+                status: u.status,
+              });
+              setUsers((prev) => [u, ...prev.filter((x) => x.id !== u.id)]);
+              setCurrentUserId(u.id);
             }
           } else if (event === 'SIGNED_OUT') {
             setCurrentUserId(null);
@@ -430,8 +500,84 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, []);
 
+  // Shared Persistent Server API Synchronization (Multi-laptop & Multi-device Sync)
+  const syncWithSharedServer = useCallback(async () => {
+    try {
+      const res = await fetch('/api/db/sync');
+      if (!res.ok) return;
+      const json = await res.json();
+      if (json.success && json.data) {
+        const {
+          users: remoteUsers,
+          projects: remoteProjects,
+          applications: remoteApps,
+          members: remoteMembers,
+          messages: remoteMsgs,
+          notifications: remoteNotifs,
+          milestones: remoteMs,
+          activityLogs: remoteLogs,
+        } = json.data;
 
-  // Persist to storage on change
+        if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
+          setUsers((prev) => {
+            const map = new Map(remoteUsers.map((u: User) => [u.id, u]));
+            // Preserve current session user if needed
+            prev.forEach((pu) => {
+              if (!map.has(pu.id) && pu.email && !SEED_USERS.some((su) => su.id === pu.id)) {
+                map.set(pu.id, pu);
+              }
+            });
+            return Array.from(map.values());
+          });
+        }
+        if (Array.isArray(remoteProjects) && remoteProjects.length > 0) setProjects(remoteProjects);
+        if (Array.isArray(remoteApps)) setApplications(remoteApps);
+        if (Array.isArray(remoteMembers)) setMembers(remoteMembers);
+        if (Array.isArray(remoteMsgs)) setMessages(remoteMsgs);
+        if (Array.isArray(remoteNotifs)) setNotifications(remoteNotifs);
+        if (Array.isArray(remoteMs)) setMilestones(remoteMs);
+        if (Array.isArray(remoteLogs)) setActivityLogs(remoteLogs);
+      }
+    } catch {
+      // Graceful offline fallback
+    }
+  }, []);
+
+  useEffect(() => {
+    syncWithSharedServer();
+
+    // Migrate any unregistered local storage accounts into the persistent database
+    try {
+      const localUsers = loadFromStorage<User[]>('users', []);
+      const nonSeed = localUsers.filter((lu) => !SEED_USERS.some((su) => su.id === lu.id));
+      if (nonSeed.length > 0) {
+        fetch('/api/auth/migrate-local', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ localUsers: nonSeed }),
+        }).catch(() => {});
+      }
+    } catch {}
+
+    // Periodic poll every 10 seconds to keep all open tabs & laptops synchronized
+    const interval = setInterval(syncWithSharedServer, 10000);
+
+    // Sync immediately when window comes into focus or tab becomes visible
+    const handleFocus = () => {
+      syncWithSharedServer();
+    };
+    window.addEventListener('focus', handleFocus);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') syncWithSharedServer();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [syncWithSharedServer]);
   useEffect(() => saveToStorage('users', users), [users]);
   useEffect(() => {
     if (currentUserId) {
@@ -503,7 +649,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, error: 'Please enter both your email address and password.' };
     }
 
-    // 0. Supabase Authentication (Cloud Backend)
+    // 0. Shared Server API Authentication (Persistent Multi-Device Backend)
+    try {
+      const serverRes = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password }),
+      });
+      if (serverRes.ok) {
+        const serverJson = await serverRes.json();
+        if (serverJson.success && serverJson.user) {
+          const authUser = serverJson.user as User;
+          setCurrentUserId(authUser.id);
+          setUsers((prev) => [authUser, ...prev.filter((u) => u.id !== authUser.id)]);
+          showToast(`Welcome back, ${authUser.name}!`, 'success');
+          return { success: true, user: authUser };
+        }
+      } else {
+        const errJson = await serverRes.json().catch(() => null);
+        if (errJson?.error && errJson.error.toLowerCase().includes('deactivated')) {
+          return { success: false, error: errJson.error };
+        }
+      }
+    } catch {
+      // Server API temporarily offline, fallback below
+    }
+
+    // 1. Supabase Authentication (Cloud Backend)
     if (isSupabaseConfigured() && supabase) {
       try {
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
@@ -531,24 +703,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             .eq('id', authData.user.id)
             .maybeSingle();
 
-          const authenticatedUser = profileRow
-            ? mapProfileToUser(profileRow)
-            : {
-                id: authData.user.id,
-                name: authData.user.user_metadata?.name || cleanEmail.split('@')[0],
-                email: cleanEmail,
-                role: (authData.user.user_metadata?.role as Role) || 'student',
-                department: authData.user.user_metadata?.department || 'Computer Science & Engineering',
-                institution: 'CollabX University',
-                headline: 'Researcher',
-                bio: '',
-                avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${cleanEmail}`,
-                skills: ['Python', 'Research Writing'],
-                interests: ['Artificial Intelligence'],
-                links: {},
-                status: 'active' as const,
-                createdAt: new Date().toISOString(),
-              };
+          let authenticatedUser: User;
+          if (profileRow) {
+            authenticatedUser = mapProfileToUser(profileRow);
+          } else {
+            // Reconcile missing profile record directly into Supabase profiles table
+            const reconciledRole = (authData.user.user_metadata?.role as Role) || 'student';
+            authenticatedUser = {
+              id: authData.user.id,
+              name: authData.user.user_metadata?.name || cleanEmail.split('@')[0],
+              email: cleanEmail,
+              role: reconciledRole,
+              department: authData.user.user_metadata?.department || 'Computer Science & Engineering',
+              institution: 'CollabX University',
+              headline:
+                authData.user.user_metadata?.designation ||
+                (reconciledRole === 'supervisor'
+                  ? 'Faculty Supervisor'
+                  : reconciledRole === 'researcher'
+                  ? 'Academic Researcher'
+                  : 'Student Scholar'),
+              bio: 'Member of the CollabX research community.',
+              avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${cleanEmail}`,
+              skills: ['Python', 'Research Writing'],
+              interests: ['Artificial Intelligence'],
+              links: authData.user.user_metadata?.orcid ? { orcid: authData.user.user_metadata.orcid } : {},
+              status: 'active' as const,
+              createdAt: authData.user.created_at || new Date().toISOString(),
+              universityId: authData.user.user_metadata?.universityId || undefined,
+              designation: authData.user.user_metadata?.designation || undefined,
+              orcid: authData.user.user_metadata?.orcid || undefined,
+            };
+
+            try {
+              await supabase.from('profiles').upsert({
+                id: authenticatedUser.id,
+                email: authenticatedUser.email,
+                name: authenticatedUser.name,
+                role: authenticatedUser.role,
+                department: authenticatedUser.department,
+                institution: authenticatedUser.institution,
+                headline: authenticatedUser.headline,
+                avatar: authenticatedUser.avatar,
+                status: authenticatedUser.status,
+                university_id: authenticatedUser.universityId || null,
+                designation: authenticatedUser.designation || null,
+                orcid: authenticatedUser.orcid || null,
+                links: authenticatedUser.links,
+              });
+            } catch (pReconcileErr) {
+              console.warn('Could not auto-reconcile profile in Supabase:', pReconcileErr);
+            }
+          }
 
           setUsers((prev) => [authenticatedUser, ...prev.filter((u) => u.id !== authenticatedUser.id)]);
           setCurrentUserId(authenticatedUser.id);
@@ -705,11 +911,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    // Salt and hash the password
+    // Salt and hash the password for client-side matching
     const salt = Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
     const passwordHash = await hashPassword(data.password, salt);
 
-    const newUser: User = {
+    let newUser: User = {
       id: supabaseUserId || 'user-' + Date.now().toString(36),
       name: cleanName,
       email: cleanEmail,
@@ -740,7 +946,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       orcid: data.orcid?.trim(),
     };
 
-    setUsers((prev) => [...prev, newUser]);
+    // Shared Persistent Server API registration (Shared across all laptops & devices)
+    try {
+      const serverRes = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: cleanName,
+          email: cleanEmail,
+          password: data.password,
+          role: data.role,
+          department: data.department,
+          universityId: data.universityId,
+          designation: data.designation,
+          orcid: data.orcid,
+        }),
+      });
+      if (serverRes.ok) {
+        const json = await serverRes.json();
+        if (json.success && json.user) {
+          newUser = json.user;
+        }
+      } else {
+        const errJson = await serverRes.json().catch(() => null);
+        if (errJson?.error) {
+          return { success: false, error: errJson.error };
+        }
+      }
+    } catch {
+      // Graceful offline fallback
+    }
+
+    setUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== newUser.email.toLowerCase()), newUser]);
     showToast('Registration successful! Please log in with your credentials.', 'success');
     return { success: true };
   };
@@ -2452,6 +2689,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Member removed from project team', 'info');
   };
 
+  const refreshUsersFromDatabase = async (): Promise<{ count: number; error?: string }> => {
+    let serverCount = users.length;
+    // 1. Fetch from shared persistent Server API (Multi-laptop & Multi-device database)
+    try {
+      const res = await fetch('/api/db/sync');
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data && Array.isArray(json.data.users)) {
+          const remoteUsers = json.data.users as User[];
+          serverCount = remoteUsers.length;
+          setUsers((prev) => {
+            const map = new Map(remoteUsers.map((u) => [u.id, u]));
+            prev.forEach((pu) => {
+              if (!map.has(pu.id) && pu.email && !SEED_USERS.some((su) => su.id === pu.id)) {
+                map.set(pu.id, pu);
+              }
+            });
+            return Array.from(map.values());
+          });
+          if (Array.isArray(json.data.projects)) setProjects(json.data.projects);
+          if (Array.isArray(json.data.applications)) setApplications(json.data.applications);
+        }
+      }
+    } catch (err) {
+      console.warn('Server sync error during refreshUsersFromDatabase:', err);
+    }
+
+    // 2. Fetch from Supabase if configured
+    if (isSupabaseConfigured() && supabase) {
+      try {
+        const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+        if (error) {
+          console.error('Failed to refresh profiles from Supabase:', error);
+          return { count: serverCount, error: error.message };
+        }
+        if (data && data.length > 0) {
+          const remoteUsers = data.map(mapProfileToUser);
+          setUsers((prev) => {
+            const map = new Map(prev.map((u) => [u.id, u]));
+            remoteUsers.forEach((ru) => map.set(ru.id, ru));
+            return Array.from(map.values());
+          });
+          return { count: Math.max(serverCount, remoteUsers.length) };
+        }
+      } catch (err: any) {
+        return { count: serverCount, error: err.message };
+      }
+    }
+    return { count: serverCount };
+  };
+
   const addUserByAdmin = (userData: Partial<User>) => {
     const newUser: User = {
       id: 'user-' + Date.now(),
@@ -2459,10 +2747,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       email: userData.email || `user${Date.now()}@collabx.test`,
       role: userData.role || 'student',
       department: userData.department || 'Computer Science & Engineering',
-      institution: userData.institution || 'Port City International University',
-      headline: userData.headline || 'Student / Researcher',
+      institution: userData.institution || 'CollabX University',
+      headline: userData.headline || (userData.role === 'supervisor' ? 'Faculty Supervisor' : 'Student Scholar'),
       bio: userData.bio || '',
-      avatar: userData.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&auto=format&fit=crop&q=80',
+      avatar: userData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.name || 'User'}`,
       skills: userData.skills || ['Python', 'Data Analysis'],
       interests: userData.interests || ['Artificial Intelligence'],
       links: {},
@@ -2470,16 +2758,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
     setUsers((prev) => [newUser, ...prev]);
+
+    // Persist to Server API
+    fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newUser),
+    }).catch(() => {});
+
+    // Persist to Supabase profiles
+    safeSupabaseCall(async (client) => {
+      await client.from('profiles').insert({
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        role: newUser.role,
+        department: newUser.department,
+        institution: newUser.institution,
+        headline: newUser.headline,
+        avatar: newUser.avatar,
+        status: newUser.status,
+        skills: newUser.skills,
+        interests: newUser.interests,
+        created_at: newUser.createdAt,
+      });
+    });
+
     showToast(`User ${newUser.name} created!`, 'success');
   };
 
   const updateUserByAdmin = (userId: string, updates: Partial<User>) => {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, ...updates } : u)));
+
+    // Persist to Server API
+    fetch(`/api/users/${userId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    }).catch(() => {});
+
+    // Persist to Supabase profiles
+    safeSupabaseCall(async (client) => {
+      const payload: any = { updated_at: new Date().toISOString() };
+      if (updates.name !== undefined) payload.name = updates.name;
+      if (updates.email !== undefined) payload.email = updates.email;
+      if (updates.role !== undefined) payload.role = updates.role;
+      if (updates.department !== undefined) payload.department = updates.department;
+      if (updates.status !== undefined) payload.status = updates.status;
+      if (updates.headline !== undefined) payload.headline = updates.headline;
+      await client.from('profiles').update(payload).eq('id', userId);
+    });
+
     showToast('User record updated', 'success');
   };
 
   const deleteUserByAdmin = (userId: string) => {
     setUsers((prev) => prev.filter((u) => u.id !== userId));
+
+    // Persist to Server API
+    fetch(`/api/users/${userId}`, {
+      method: 'DELETE',
+    }).catch(() => {});
+
+    // Persist deletion to Supabase profiles
+    safeSupabaseCall(async (client) => {
+      await client.from('profiles').delete().eq('id', userId);
+    });
+
     showToast('User deleted', 'info');
   };
 
@@ -2589,6 +2934,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addUserByAdmin,
         updateUserByAdmin,
         deleteUserByAdmin,
+        refreshUsersFromDatabase,
         saveAiDraft,
         deleteAiDraft,
         getMatchScore,

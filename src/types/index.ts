@@ -63,7 +63,8 @@ export interface ActivityLog {
     | 'application_rejected'
     | 'application_withdrawn'
     | 'member_invited'
-    | 'member_removed';
+    | 'member_removed'
+    | 'user_registered';
   targetType: 'project' | 'application' | 'team' | 'user' | 'system';
   targetId: string;
   targetTitle: string;

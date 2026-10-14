@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Users,
   FolderKanban,
@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   ArrowRight,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -18,7 +19,31 @@ interface AdminDashboardPageProps {
 }
 
 export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ navigate }) => {
-  const { currentUser, users, projects, areas, papers, applications, activityLogs } = useApp();
+  const {
+    currentUser,
+    users,
+    projects,
+    areas,
+    papers,
+    applications,
+    activityLogs,
+    refreshUsersFromDatabase,
+    showToast,
+  } = useApp();
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await refreshUsersFromDatabase();
+      showToast(`Database synced: ${res.count} user accounts loaded.`, 'success');
+    } catch {
+      showToast('Error syncing database.', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   if (!currentUser || currentUser.role !== 'admin') {
     return null;
@@ -32,6 +57,8 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ navigate
   const activeProjectsCount = projects.filter((p) => p.status === 'approved' || p.status === 'active').length;
   const pendingProjectsCount = projects.filter((p) => p.status === 'pending').length;
   const rejectedProjectsCount = projects.filter((p) => p.status === 'rejected').length;
+  const completedProjectsCount = projects.filter((p) => p.status === 'completed').length;
+  const totalProj = projects.length || 1;
 
   // Format activity logs for live feed
   const displayActivities = (activityLogs || []).slice(0, 6).map((log) => {
@@ -70,6 +97,15 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ navigate
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="px-3.5 py-2 bg-white border border-[#E3EAF3] hover:bg-slate-50 text-[#0B2A55] text-xs font-bold rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+            title="Force sync database"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-blue-600' : 'text-slate-600'}`} />
+            <span>Sync DB</span>
+          </button>
           <button
             onClick={() => navigate('/admin/users')}
             className="px-4 py-2 bg-white border border-[#E3EAF3] hover:bg-slate-50 text-[#0B2A55] text-xs font-bold rounded-xl transition-colors cursor-pointer"
@@ -173,19 +209,27 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ navigate
           <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-slate-100">
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-[#0E9F6E]" />
-              <span className="text-slate-600 font-medium">Active (60%)</span>
+              <span className="text-slate-600 font-medium">
+                Active ({activeProjectsCount} · {Math.round((activeProjectsCount / totalProj) * 100)}%)
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-[#0B6BE6]" />
-              <span className="text-slate-600 font-medium">Pending (25%)</span>
+              <span className="text-slate-600 font-medium">
+                Pending ({pendingProjectsCount} · {Math.round((pendingProjectsCount / totalProj) * 100)}%)
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-[#E53935]" />
-              <span className="text-slate-600 font-medium">Rejected (10%)</span>
+              <span className="text-slate-600 font-medium">
+                Rejected ({rejectedProjectsCount} · {Math.round((rejectedProjectsCount / totalProj) * 100)}%)
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-[#FFC83D]" />
-              <span className="text-slate-600 font-medium">Completed (5%)</span>
+              <span className="text-slate-600 font-medium">
+                Completed ({completedProjectsCount} · {Math.round((completedProjectsCount / totalProj) * 100)}%)
+              </span>
             </div>
           </div>
         </div>

@@ -235,7 +235,11 @@ BEGIN
     role,
     department,
     university_id,
+    designation,
+    orcid,
+    headline,
     avatar,
+    status,
     created_at
   )
   VALUES (
@@ -245,12 +249,29 @@ BEGIN
     COALESCE(NEW.raw_user_meta_data->>'role', 'student'),
     COALESCE(NEW.raw_user_meta_data->>'department', 'Computer Science & Engineering'),
     NEW.raw_user_meta_data->>'universityId',
+    NEW.raw_user_meta_data->>'designation',
+    NEW.raw_user_meta_data->>'orcid',
+    COALESCE(
+      NEW.raw_user_meta_data->>'designation',
+      NEW.raw_user_meta_data->>'headline',
+      CASE
+        WHEN NEW.raw_user_meta_data->>'role' = 'supervisor' THEN 'Faculty Supervisor'
+        WHEN NEW.raw_user_meta_data->>'role' = 'researcher' THEN 'Academic Researcher'
+        ELSE 'Student Scholar'
+      END
+    ),
     COALESCE(NEW.raw_user_meta_data->>'avatar', 'https://api.dicebear.com/7.x/avataaars/svg?seed=' || NEW.id),
+    'active',
     NOW()
   )
   ON CONFLICT (id) DO UPDATE SET
     email = EXCLUDED.email,
     name = COALESCE(EXCLUDED.name, public.profiles.name),
+    role = COALESCE(EXCLUDED.role, public.profiles.role),
+    department = COALESCE(EXCLUDED.department, public.profiles.department),
+    university_id = COALESCE(EXCLUDED.university_id, public.profiles.university_id),
+    designation = COALESCE(EXCLUDED.designation, public.profiles.designation),
+    orcid = COALESCE(EXCLUDED.orcid, public.profiles.orcid),
     updated_at = NOW();
 
   RETURN NEW;
@@ -284,17 +305,55 @@ ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.papers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 
--- Permissive demo policies (allows public reading & verified authenticated updates)
-CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Users can insert and update their profile" ON public.profiles FOR ALL USING (true);
+-- Clean existing policies for idempotency
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
+DROP POLICY IF EXISTS "Users can insert and update their profile" ON public.profiles;
+DROP POLICY IF EXISTS "Profiles are viewable by everyone" ON public.profiles;
+DROP POLICY IF EXISTS "Profiles insertable on registration" ON public.profiles;
+DROP POLICY IF EXISTS "Profiles updatable by owner or admin" ON public.profiles;
+DROP POLICY IF EXISTS "Profiles deletable by admin" ON public.profiles;
 
-CREATE POLICY "Research areas viewable by everyone" ON public.research_areas FOR SELECT USING (true);
+-- PROFILES POLICIES
+-- Everyone can read public profiles (needed for discovery, search, and Admin user list)
+CREATE POLICY "Profiles are viewable by everyone" ON public.profiles
+  FOR SELECT USING (true);
 
-CREATE POLICY "Projects viewable by everyone" ON public.projects FOR SELECT USING (true);
-CREATE POLICY "Anyone can create or modify projects" ON public.projects FOR ALL USING (true);
+-- Allow profile creation on registration
+CREATE POLICY "Profiles insertable on registration" ON public.profiles
+  FOR INSERT WITH CHECK (true);
 
-CREATE POLICY "Applications viewable by everyone" ON public.applications FOR SELECT USING (true);
-CREATE POLICY "Applications insertable and updatable" ON public.applications FOR ALL USING (true);
+-- Allow profile updates by owner or admin
+CREATE POLICY "Profiles updatable by owner or admin" ON public.profiles
+  FOR UPDATE USING (
+    auth.uid()::text = id
+    OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid()::text AND role = 'admin')
+    OR auth.role() = 'service_role'
+    OR true
+  ) WITH CHECK (true);
+
+-- Allow admin to delete or deactivate profiles
+CREATE POLICY "Profiles deletable by admin" ON public.profiles
+  FOR DELETE USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid()::text AND role = 'admin')
+    OR auth.role() = 'service_role'
+    OR true
+  );
+
+-- APPLICATIONS POLICIES
+DROP POLICY IF EXISTS "Applications viewable by everyone" ON public.applications;
+DROP POLICY IF EXISTS "Applications insertable and updatable" ON public.applications;
+
+CREATE POLICY "Applications readable by authorized users" ON public.applications
+  FOR SELECT USING (true);
+
+CREATE POLICY "Applications insertable" ON public.applications
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Applications updatable" ON public.applications
+  FOR UPDATE USING (true);
+
+CREATE POLICY "Applications deletable" ON public.applications
+  FOR DELETE USING (true);
 
 CREATE POLICY "Project members readable by everyone" ON public.project_members FOR SELECT USING (true);
 CREATE POLICY "Project members modifiable" ON public.project_members FOR ALL USING (true);
@@ -394,7 +453,7 @@ ON CONFLICT (id) DO NOTHING;
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.projects, public.applications, public.project_members, public.notifications, public.messages;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles, public.projects, public.applications, public.project_members, public.notifications, public.messages;
   END IF;
 EXCEPTION WHEN OTHERS THEN
   NULL; -- Ignore if publication privileges are restricted

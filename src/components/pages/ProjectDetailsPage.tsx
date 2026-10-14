@@ -17,6 +17,9 @@ import {
   Sparkles,
   Send,
   AlertCircle,
+  Shield,
+  Settings,
+  CheckCircle,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import confetti from 'canvas-confetti';
@@ -38,6 +41,7 @@ export const ProjectDetailsPage: React.FC<ProjectDetailsPageProps> = ({ projectI
     members,
     files,
     milestones,
+    updateProject,
     showToast,
   } = useApp();
 
@@ -486,10 +490,96 @@ export const ProjectDetailsPage: React.FC<ProjectDetailsPageProps> = ({ projectI
         {/* Right 1 Col: Application Action Box & Saved Toggle */}
         <div className="space-y-6">
           <div className="bg-white p-6 sm:p-7 rounded-3xl border border-[#E3EAF3] shadow-xs space-y-5">
-            <h3 className="text-base font-extrabold text-[#0B2A55]">Join Research Group</h3>
+            <h3 className="text-base font-extrabold text-[#0B2A55] flex items-center justify-between">
+              <span>{isAdmin ? 'Administrative Actions' : 'Join Research Group'}</span>
+              {isAdmin && (
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 uppercase tracking-wider flex items-center gap-1">
+                  <Shield className="w-3 h-3" />
+                  Admin
+                </span>
+              )}
+            </h3>
 
-            {/* Application status notice */}
-            {userApplication && userApplication.status !== 'withdrawn' ? (
+            {/* Application status notice & role-based action panel */}
+            {isAdmin ? (
+              <div className="p-4 rounded-2xl bg-indigo-50/80 border border-indigo-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-bold text-indigo-900">
+                    <Shield className="w-4 h-4 text-indigo-600" />
+                    <span>Project Moderation</span>
+                  </div>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                      project.status === 'approved' || project.status === 'active'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : project.status === 'pending'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-rose-100 text-rose-800'
+                    }`}
+                  >
+                    {project.status}
+                  </span>
+                </div>
+                <p className="text-xs text-indigo-700 leading-relaxed">
+                  {isSupervisor
+                    ? 'You are the supervisor of this project with full administrator privileges.'
+                    : 'As an Administrator, you moderate this project and review research compliance. Student application workflow is disabled for administrative accounts.'}
+                </p>
+                <div className="space-y-2 pt-1">
+                  <button
+                    onClick={() => navigate(`/projects/${project.id}/discussion`)}
+                    className="w-full py-2.5 bg-[#0B2A55] hover:bg-[#081e3d] text-white font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <span>Enter Project Workspace →</span>
+                  </button>
+                  <button
+                    onClick={() => navigate('/admin/projects')}
+                    className="w-full py-2.5 bg-white hover:bg-slate-50 border border-indigo-200 text-indigo-900 font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <Settings className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Moderate in Admin Portal</span>
+                  </button>
+                  {project.status === 'pending' && (
+                    <button
+                      onClick={() => {
+                        updateProject(project.id, { status: 'approved' });
+                        showToast(`Project "${project.title}" approved!`, 'success');
+                      }}
+                      className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      <span>Approve Project</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : isSupervisor ? (
+              <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-xs text-blue-800 space-y-2">
+                <p className="font-bold">You are the supervisor of this project.</p>
+                <button
+                  onClick={() => navigate(`/projects/${project.id}/discussion`)}
+                  className="w-full py-2 bg-[#0B6BE6] hover:bg-blue-600 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  Enter Project Workspace →
+                </button>
+                <button
+                  onClick={() => navigate('/researcher#projects')}
+                  className="w-full py-2 bg-white hover:bg-slate-50 border border-blue-200 text-blue-900 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  Manage Project in Researcher Portal
+                </button>
+              </div>
+            ) : isMember ? (
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 space-y-2">
+                <p className="font-bold">You are an active collaborator on this project.</p>
+                <button
+                  onClick={() => navigate(`/projects/${project.id}/discussion`)}
+                  className="w-full py-2 bg-[#0E9F6E] hover:bg-emerald-600 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  Enter Project Workspace →
+                </button>
+              </div>
+            ) : userApplication && userApplication.status !== 'withdrawn' ? (
               <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-amber-800">
                   <AlertCircle className="w-4 h-4" />
@@ -512,19 +602,12 @@ export const ProjectDetailsPage: React.FC<ProjectDetailsPageProps> = ({ projectI
                   </button>
                 )}
               </div>
-            ) : isSupervisor ? (
-              <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-xs text-blue-800 font-medium">
-                You are the supervisor of this project.
-              </div>
-            ) : isMember ? (
-              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 space-y-2">
-                <p className="font-bold">You are an active collaborator on this project.</p>
-                <button
-                  onClick={() => navigate(`/projects/${project.id}/discussion`)}
-                  className="w-full py-2 bg-[#0E9F6E] hover:bg-emerald-600 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
-                >
-                  Enter Project Workspace →
-                </button>
+            ) : currentUser && (currentUser.role === 'supervisor' || currentUser.role === 'researcher') ? (
+              <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 text-xs text-slate-700 space-y-1">
+                <p className="font-semibold text-slate-900">Academic Staff Account</p>
+                <p className="text-[11px] text-slate-600">
+                  Faculty and researchers participate via collaboration and co-supervision. Direct student application is reserved for scholars.
+                </p>
               </div>
             ) : project.status !== 'approved' && project.status !== 'active' ? (
               <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 text-xs text-slate-700">
@@ -539,7 +622,7 @@ export const ProjectDetailsPage: React.FC<ProjectDetailsPageProps> = ({ projectI
                 onClick={() => {
                   if (!currentUser) {
                     showToast('Please log in to apply for research projects', 'info');
-                    navigate('/login');
+                    navigate(`/login?redirect=${encodeURIComponent(`/projects/${project.id}`)}`);
                     return;
                   }
                   setIsApplyModalOpen(true);

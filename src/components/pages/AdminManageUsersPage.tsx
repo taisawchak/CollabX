@@ -12,6 +12,7 @@ import {
   Shield,
   GraduationCap,
   UserCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Role, User } from '../../types';
@@ -21,7 +22,15 @@ interface AdminManageUsersPageProps {
 }
 
 export const AdminManageUsersPage: React.FC<AdminManageUsersPageProps> = ({ navigate }) => {
-  const { currentUser, users, addUserByAdmin, updateUserByAdmin, deleteUserByAdmin, showToast } = useApp();
+  const {
+    currentUser,
+    users,
+    addUserByAdmin,
+    updateUserByAdmin,
+    deleteUserByAdmin,
+    refreshUsersFromDatabase,
+    showToast,
+  } = useApp();
 
   if (!currentUser || currentUser.role !== 'admin') {
     return null;
@@ -29,6 +38,19 @@ export const AdminManageUsersPage: React.FC<AdminManageUsersPageProps> = ({ navi
 
   const [tab, setTab] = useState<'all' | 'students' | 'researchers' | 'admins'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await refreshUsersFromDatabase();
+      showToast(`Database synced: ${res.count} user records verified.`, 'success');
+    } catch {
+      showToast('Error syncing database.', 'error');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -137,6 +159,16 @@ export const AdminManageUsersPage: React.FC<AdminManageUsersPageProps> = ({ navi
           </div>
 
           <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="p-2.5 bg-white border border-[#E3EAF3] hover:bg-slate-50 text-[#0B2A55] rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+            title="Force sync users from database"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-blue-600' : 'text-slate-600'}`} />
+            <span className="hidden sm:inline font-bold text-xs">Sync DB</span>
+          </button>
+
+          <button
             onClick={handleExportCSV}
             className="p-2.5 bg-white border border-[#E3EAF3] hover:bg-slate-50 text-[#0B2A55] rounded-xl transition-colors cursor-pointer"
             title="Export CSV"
@@ -204,73 +236,106 @@ export const AdminManageUsersPage: React.FC<AdminManageUsersPageProps> = ({ navi
           <table className="w-full text-xs text-left">
             <thead className="bg-[#DEEBFB]/50 text-[#0B2A55] uppercase tracking-wider font-extrabold border-b border-[#E3EAF3]">
               <tr>
-                <th className="p-4">Name</th>
-                <th className="p-4">Role</th>
+                <th className="p-4">Name & Academic Email</th>
+                <th className="p-4">Role & Designation</th>
                 <th className="p-4">Department</th>
+                <th className="p-4">Joined Date</th>
                 <th className="p-4">Status</th>
                 <th className="p-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredUsers.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
-                  <td className="p-4">
-                    <div className="flex items-center gap-3">
-                      <img src={u.avatar} alt={u.name} className="w-9 h-9 rounded-full object-cover border border-slate-200" />
-                      <div>
-                        <p className="font-extrabold text-[#0B2A55]">{u.name}</p>
-                        <p className="text-[11px] text-slate-400">{u.email}</p>
+              {filteredUsers.map((u) => {
+                const joinedFormatted = u.createdAt
+                  ? new Date(u.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                  : 'N/A';
+
+                return (
+                  <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <img src={u.avatar} alt={u.name} className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0" />
+                        <div>
+                          <p className="font-extrabold text-[#0B2A55] flex items-center gap-1.5">
+                            <span>{u.name}</span>
+                            {u.universityId && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                                #{u.universityId}
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-[11px] text-slate-500 font-mono">{u.email}</p>
+                          {u.orcid && (
+                            <p className="text-[10px] text-emerald-600 font-medium">ORCID: {u.orcid}</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#DCE6FB] text-[#0B6BE6] capitalize">
-                      {u.role}
-                    </span>
-                  </td>
-                  <td className="p-4 font-medium text-slate-600">{u.department}</td>
-                  <td className="p-4">
-                    <button
-                      onClick={() =>
-                        updateUserByAdmin(u.id, {
-                          status: u.status === 'active' ? 'inactive' : 'active',
-                        })
-                      }
-                      className={`px-3 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors ${
-                        u.status === 'active'
-                          ? 'bg-[#DDF5EA] text-[#0E9F6E]'
-                          : 'bg-[#FDE3E3] text-[#E53935]'
-                      }`}
-                      title="Click to toggle status"
-                    >
-                      {u.status === 'active' ? 'Active' : 'Inactive'}
-                    </button>
-                  </td>
-                  <td className="p-4 text-right space-x-1.5 shrink-0">
-                    <button
-                      onClick={() => navigate(`/u/${u.id}`)}
-                      className="p-1.5 hover:bg-blue-100 text-[#0B6BE6] rounded-lg cursor-pointer"
-                      title="View Profile"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleOpenEdit(u)}
-                      className="p-1.5 hover:bg-amber-100 text-amber-600 rounded-lg cursor-pointer"
-                      title="Edit User"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteUserByAdmin(u.id)}
-                      className="p-1.5 hover:bg-red-100 text-red-500 rounded-lg cursor-pointer"
-                      title="Delete User"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="p-4">
+                      <div>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-xs font-bold capitalize inline-block ${
+                            u.role === 'admin'
+                              ? 'bg-rose-100 text-rose-800'
+                              : u.role === 'supervisor'
+                              ? 'bg-purple-100 text-purple-800'
+                              : u.role === 'researcher'
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {u.role}
+                        </span>
+                        {u.designation && (
+                          <p className="text-[11px] text-slate-500 font-medium mt-0.5">{u.designation}</p>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4 font-medium text-slate-600">{u.department}</td>
+                    <td className="p-4 text-slate-500 font-medium">{joinedFormatted}</td>
+                    <td className="p-4">
+                      <button
+                        onClick={() =>
+                          updateUserByAdmin(u.id, {
+                            status: u.status === 'active' ? 'inactive' : 'active',
+                          })
+                        }
+                        className={`px-3 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors ${
+                          u.status === 'active'
+                            ? 'bg-[#DDF5EA] text-[#0E9F6E]'
+                            : 'bg-[#FDE3E3] text-[#E53935]'
+                        }`}
+                        title="Click to toggle active/inactive status"
+                      >
+                        {u.status === 'active' ? 'Active' : 'Inactive'}
+                      </button>
+                    </td>
+                    <td className="p-4 text-right space-x-1.5 shrink-0">
+                      <button
+                        onClick={() => navigate(`/u/${u.id}`)}
+                        className="p-1.5 hover:bg-blue-100 text-[#0B6BE6] rounded-lg cursor-pointer"
+                        title="View Profile"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleOpenEdit(u)}
+                        className="p-1.5 hover:bg-amber-100 text-amber-600 rounded-lg cursor-pointer"
+                        title="Edit User"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => deleteUserByAdmin(u.id)}
+                        className="p-1.5 hover:bg-red-100 text-red-500 rounded-lg cursor-pointer"
+                        title="Delete User"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
