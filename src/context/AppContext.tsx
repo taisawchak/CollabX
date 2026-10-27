@@ -972,13 +972,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       orcid: data.orcid?.trim(),
     };
 
-    // Shared Persistent Server API registration (Shared across all laptops & devices)
+    // 2. If Supabase is configured and succeeded, registration is fully persisted
+    if (isSupabaseConfigured() && supabase && supabaseUserId) {
+      // Optional asynchronous server notice if dev server is running
+      fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: supabaseUserId,
+          name: cleanName,
+          email: cleanEmail,
+          password: data.password,
+          role: data.role,
+          department: data.department,
+          universityId: data.universityId,
+          designation: data.designation,
+          orcid: data.orcid,
+        }),
+      }).catch(() => {});
+
+      setUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== newUser.email.toLowerCase()), newUser]);
+      showToast('Registration successful! Please log in with your credentials.', 'success');
+      return { success: true };
+    }
+
+    // 3. Standalone Server API registration fallback (for full-stack dev / local server)
     try {
       const serverRes = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: supabaseUserId || newUser.id,
+          id: newUser.id,
           name: cleanName,
           email: cleanEmail,
           password: data.password,
@@ -989,24 +1013,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           orcid: data.orcid,
         }),
       });
-      if (serverRes.ok) {
+
+      const isJson = serverRes.headers.get('content-type')?.includes('application/json');
+      if (serverRes.ok && isJson) {
         const json = await serverRes.json();
         if (json.success && json.user) {
           newUser = json.user;
-        }
-      } else {
-        const errJson = await serverRes.json().catch(() => null);
-        if (errJson?.error) {
-          return { success: false, error: errJson.error };
+          setUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== newUser.email.toLowerCase()), newUser]);
+          showToast('Registration successful! Please log in with your credentials.', 'success');
+          return { success: true };
         }
       }
-    } catch {
-      // Graceful offline fallback
-    }
 
-    setUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== newUser.email.toLowerCase()), newUser]);
-    showToast('Registration successful! Please log in with your credentials.', 'success');
-    return { success: true };
+      // Handle server error response
+      let errMsg = 'Registration failed: Production database is not connected.';
+      if (isJson) {
+        const errJson = await serverRes.json().catch(() => null);
+        if (errJson?.error) errMsg = errJson.error;
+      } else if (serverRes.status === 404 || !serverRes.ok) {
+        errMsg = 'Production database is not connected. In your deployment (e.g. Vercel), configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable cross-device user registration.';
+      }
+      return { success: false, error: errMsg };
+    } catch {
+      return {
+        success: false,
+        error: 'Registration failed: Cannot connect to production database. Please verify VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your deployment environment.',
+      };
+    }
   };
 
   /**
@@ -2750,7 +2783,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 1. Fetch from shared persistent Server API (Multi-laptop & Multi-device database)
     try {
       const res = await fetch('/api/db/sync');
-      if (res.ok) {
+      const isJson = res.headers.get('content-type')?.includes('application/json');
+      if (res.ok && isJson) {
         const json = await res.json();
         if (json.success && json.data && Array.isArray(json.data.users)) {
           const remoteUsers = json.data.users as User[];
@@ -2772,7 +2806,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Server sync error during refreshUsersFromDatabase:', err);
     }
 
-    // 2. Fetch from Supabase if configured
+    // 2. Fetch from Supabase if configured (authoritative production database)
     if (isSupabaseConfigured() && supabase) {
       try {
         const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
@@ -2783,11 +2817,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (data && data.length > 0) {
           const remoteUsers = data.map(mapProfileToUser);
           setUsers((prev) => {
-            const map = new Map(prev.map((u) => [u.id, u]));
+            const map = new Map<string, User>();
             remoteUsers.forEach((ru) => map.set(ru.id, ru));
+            // Preserve seed admin if not yet present in Supabase profiles
+            prev.forEach((pu) => {
+              if (!map.has(pu.id) && (pu.role === 'admin' || pu.id === currentUserId)) {
+                map.set(pu.id, pu);
+              }
+            });
             return Array.from(map.values());
           });
-          return { count: Math.max(serverCount, remoteUsers.length) };
+          return { count: remoteUsers.length };
         }
       } catch (err: any) {
         return { count: serverCount, error: err.message };

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Role, User } from '../../types';
+import { isSupabaseConfigured } from '../../lib/supabase';
 
 interface AdminManageUsersPageProps {
   navigate: (path: string) => void;
@@ -193,6 +194,33 @@ export const AdminManageUsersPage: React.FC<AdminManageUsersPageProps> = ({ navi
           </button>
         </div>
       </div>
+
+      {/* Production Database Status Notice */}
+      {!isSupabaseConfigured() && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <span className="text-base">⚠️</span>
+            <div>
+              <p className="font-bold">Production Database (Supabase) is Not Connected</p>
+              <p className="text-amber-700 mt-0.5">
+                New user accounts created on mobile devices require Supabase for persistent cross-device synchronization. Please configure <code className="px-1.5 py-0.5 rounded bg-amber-100 font-mono text-[11px]">VITE_SUPABASE_URL</code> and <code className="px-1.5 py-0.5 rounded bg-amber-100 font-mono text-[11px]">VITE_SUPABASE_ANON_KEY</code> in your Vercel Project Settings and execute <code className="px-1.5 py-0.5 rounded bg-amber-100 font-mono text-[11px]">supabase/schema.sql</code>.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {isSupabaseConfigured() && (
+        <div className="px-4 py-2.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+            <span className="font-bold">Connected to Shared Supabase Production Database</span>
+            <span className="text-emerald-600 font-mono text-[11px] hidden sm:inline">(Real-time cross-device user sync active)</span>
+          </div>
+          <span className="text-[11px] font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-lg border border-emerald-200">
+            {users.length} Active Records
+          </span>
+        </div>
+      )}
 
       {/* Tabs matching Page 20: All Users · Students · Researchers · Admins */}
       <div className="flex items-center gap-2 border-b border-[#E3EAF3] pb-2 text-xs">

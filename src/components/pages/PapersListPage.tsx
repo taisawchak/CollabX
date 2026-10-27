@@ -14,9 +14,13 @@ import {
   Plus,
   ArrowRight,
   Filter,
+  Globe,
+  Building,
+  ExternalLink,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { Paper } from '../../types';
+import { Paper, ScholarlyExternalPaper } from '../../types';
+import { searchExternalScholarlyWorks, formatCitation } from '../../services/scholarlySearch';
 
 interface PapersListPageProps {
   navigate: (path: string) => void;
@@ -30,6 +34,55 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
   const [selectedArea, setSelectedArea] = useState('all');
   const [selectedType, setSelectedType] = useState('all');
   const [sortBy, setSortBy] = useState<'latest' | 'views' | 'downloads'>('latest');
+
+  // Source Switcher (Local institutional repository vs Global academic database)
+  const [activeSourceTab, setActiveSourceTab] = useState<'local' | 'global'>('local');
+  const [globalWorkType, setGlobalWorkType] = useState<string>('all');
+  const [globalPapers, setGlobalPapers] = useState<ScholarlyExternalPaper[]>([]);
+  const [isLoadingGlobal, setIsLoadingGlobal] = useState(false);
+  const [copiedGlobalId, setCopiedGlobalId] = useState<string | null>(null);
+
+  // Synchronize global search across 250M+ scholarly works
+  React.useEffect(() => {
+    if (activeSourceTab === 'global' || searchQuery.trim().length > 0) {
+      setIsLoadingGlobal(true);
+      const timer = setTimeout(() => {
+        searchExternalScholarlyWorks(searchQuery, {
+          workType: globalWorkType,
+          limit: 24,
+        }).then((res) => {
+          setGlobalPapers(res);
+          setIsLoadingGlobal(false);
+        });
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [searchQuery, activeSourceTab, globalWorkType]);
+
+  const handleCopyGlobalCitation = (paper: ScholarlyExternalPaper, style: 'APA' | 'IEEE' | 'BibTeX' = 'APA') => {
+    const text = formatCitation(paper, style);
+    navigator.clipboard.writeText(text);
+    setCopiedGlobalId(paper.id);
+    showToast(`Citation (${style}) copied to clipboard!`, 'success');
+    setTimeout(() => setCopiedGlobalId(null), 2500);
+  };
+
+  const getWorkTypeBadgeStyle = (type?: string) => {
+    switch (type) {
+      case 'Thesis / Dissertation':
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      case 'Conference Proceeding':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'Preprint':
+        return 'bg-amber-100 text-amber-800 border-amber-200';
+      case 'Journal Article':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'Book / Chapter':
+        return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+      default:
+        return 'bg-slate-100 text-slate-800 border-slate-200';
+    }
+  };
 
   const renderAuthorList = (authorNames: string[]) => {
     return authorNames.map((name, idx) => {
@@ -146,11 +199,11 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 text-purple-700 text-xs font-bold mb-2">
             <BookOpen className="w-3.5 h-3.5" />
-            <span>Open Access Scholarly Repository</span>
+            <span>Open Access Scholarly Repository & Global Search</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-[#0B2A55] tracking-tight">Research Papers</h1>
+          <h1 className="text-2xl sm:text-3xl font-black text-[#0B2A55] tracking-tight">Research & Thesis Papers</h1>
           <p className="text-xs text-[#6B7A90] mt-1">
-            Discover, read, cite, and publish peer-reviewed papers by Port City International University scholars
+            Discover, read, cite, and publish peer-reviewed papers by university scholars or search 250M+ papers globally
           </p>
         </div>
 
@@ -172,106 +225,326 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
         </div>
       </div>
 
-      {/* Search & Filters Row */}
-      <div className="bg-white p-4 rounded-2xl border border-[#E3EAF3] shadow-xs flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
-        <div className="relative w-full md:w-80">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search papers by title, abstract, authors, keywords..."
-            className="w-full bg-[#F5F8FC] border border-[#E3EAF3] pl-9 pr-3 py-2 rounded-xl text-[#0B2A55]"
-          />
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      {/* Scope Switcher Tabs */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2 sm:p-2.5 rounded-2xl border border-[#E3EAF3] shadow-xs">
+        <div className="flex items-center gap-1.5 overflow-x-auto text-xs w-full sm:w-auto">
+          <button
+            onClick={() => setActiveSourceTab('local')}
+            className={`px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeSourceTab === 'local'
+                ? 'bg-[#0B2A55] text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>CollabX University Repository ({papers.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSourceTab('global')}
+            className={`px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeSourceTab === 'global'
+                ? 'bg-[#0B6BE6] text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Globe className="w-4 h-4" />
+            <span>Global Academic Search (250M+ Papers & Theses)</span>
+          </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          <select
-            value={selectedArea}
-            onChange={(e) => setSelectedArea(e.target.value)}
-            className="bg-[#F5F8FC] border border-[#E3EAF3] px-3 py-2 rounded-xl text-[#0B2A55] font-medium"
-          >
-            <option value="all">All Research Areas</option>
-            {areas.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
+        {activeSourceTab === 'global' && (
+          <div className="flex items-center gap-1 text-xs bg-slate-50 p-1 rounded-xl border border-slate-200 ml-auto">
+            <span className="text-slate-400 px-2 font-semibold">Type:</span>
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'thesis', label: 'Theses' },
+              { id: 'journal', label: 'Journals' },
+              { id: 'conference', label: 'Conferences' },
+              { id: 'preprint', label: 'Preprints' },
+            ].map((ft) => (
+              <button
+                key={ft.id}
+                onClick={() => setGlobalWorkType(ft.id)}
+                className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                  globalWorkType === ft.id
+                    ? 'bg-white text-[#0B6BE6] shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {ft.label}
+              </button>
             ))}
-          </select>
-
-          <select
-            value={selectedType}
-            onChange={(e) => setSelectedType(e.target.value)}
-            className="bg-[#F5F8FC] border border-[#E3EAF3] px-3 py-2 rounded-xl text-[#0B2A55] font-medium"
-          >
-            <option value="all">All Paper Types</option>
-            <option value="Journal">Journal</option>
-            <option value="Conference">Conference</option>
-            <option value="Thesis">Thesis</option>
-            <option value="Preprint">Preprint</option>
-          </select>
-
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="bg-[#F5F8FC] border border-[#E3EAF3] px-3 py-2 rounded-xl text-[#0B2A55] font-semibold"
-          >
-            <option value="latest">Latest</option>
-            <option value="views">Most Viewed</option>
-            <option value="downloads">Most Downloaded</option>
-          </select>
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Papers Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredPapers.map((paper) => (
-          <div
-            key={paper.id}
-            onClick={() => setReadingPaper(paper)}
-            className="bg-white p-6 rounded-3xl border border-[#E3EAF3] shadow-xs hover:shadow-lg transition-all cursor-pointer flex flex-col justify-between space-y-4 group"
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#DCE6FB] text-[#0B6BE6]">
-                  {paper.paperType}
-                </span>
-                <span className="text-xs text-slate-400 font-semibold">{paper.year}</span>
-                {paper.aiAssisted && (
-                  <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold ml-auto">
-                    AI-Assisted
-                  </span>
-                )}
-              </div>
-
-              <h3 className="font-extrabold text-base text-[#0B2A55] group-hover:text-[#0B6BE6] transition-colors line-clamp-2 leading-snug">
-                {paper.title}
-              </h3>
-
-              <p className="text-xs text-[#6B7A90] line-clamp-3 leading-relaxed">
-                {paper.abstract}
-              </p>
-
-              <div className="flex flex-wrap gap-1 pt-1">
-                {paper.keywords.slice(0, 3).map((kw) => (
-                  <span key={kw} className="text-[10px] px-2 py-0.5 bg-slate-50 border border-slate-100 rounded-md text-slate-500">
-                    {kw}
-                  </span>
-                ))}
-              </div>
+      {/* LOCAL REPOSITORY VIEW */}
+      {activeSourceTab === 'local' && (
+        <div className="space-y-6">
+          {/* Search & Filters Row */}
+          <div className="bg-white p-4 rounded-2xl border border-[#E3EAF3] shadow-xs flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
+            <div className="relative w-full md:w-80">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search local papers by title, abstract, authors..."
+                className="w-full bg-[#F5F8FC] border border-[#E3EAF3] pl-9 pr-3 py-2 rounded-xl text-[#0B2A55]"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <div className="truncate max-w-[200px] font-medium">
-                {renderAuthorList(paper.authors)}
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-[#0B6BE6] font-bold group-hover:underline">Read PDF →</span>
-              </div>
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <select
+                value={selectedArea}
+                onChange={(e) => setSelectedArea(e.target.value)}
+                className="bg-[#F5F8FC] border border-[#E3EAF3] px-3 py-2 rounded-xl text-[#0B2A55] font-medium"
+              >
+                <option value="all">All Research Areas</option>
+                {areas.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
+                className="bg-[#F5F8FC] border border-[#E3EAF3] px-3 py-2 rounded-xl text-[#0B2A55] font-medium"
+              >
+                <option value="all">All Paper Types</option>
+                <option value="Journal">Journal</option>
+                <option value="Conference">Conference</option>
+                <option value="Thesis">Thesis</option>
+                <option value="Preprint">Preprint</option>
+              </select>
+
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="bg-[#F5F8FC] border border-[#E3EAF3] px-3 py-2 rounded-xl text-[#0B2A55] font-semibold"
+              >
+                <option value="latest">Latest</option>
+                <option value="views">Most Viewed</option>
+                <option value="downloads">Most Downloaded</option>
+              </select>
             </div>
           </div>
-        ))}
-      </div>
+
+          {/* Fallback to Global if no local matches found */}
+          {filteredPapers.length === 0 && (
+            <div className="bg-white p-8 rounded-3xl border border-[#E3EAF3] text-center space-y-3">
+              <BookOpen className="w-10 h-10 text-slate-300 mx-auto" />
+              <h3 className="font-bold text-base text-[#0B2A55]">No local repository papers matched</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                No papers in Port City International University's local collection match "{searchQuery}".
+              </p>
+              <button
+                onClick={() => setActiveSourceTab('global')}
+                className="px-5 py-2.5 rounded-xl bg-[#0B6BE6] text-white font-bold text-xs shadow-xs hover:bg-blue-600 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Globe className="w-4 h-4" />
+                <span>Search 250M+ Global Papers & Theses for "{searchQuery}" →</span>
+              </button>
+            </div>
+          )}
+
+          {/* Papers Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredPapers.map((paper) => (
+              <div
+                key={paper.id}
+                onClick={() => setReadingPaper(paper)}
+                className="bg-white p-6 rounded-3xl border border-[#E3EAF3] shadow-xs hover:shadow-lg transition-all cursor-pointer flex flex-col justify-between space-y-4 group"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#DCE6FB] text-[#0B6BE6]">
+                      {paper.paperType}
+                    </span>
+                    <span className="text-xs text-slate-400 font-semibold">{paper.year}</span>
+                    {paper.aiAssisted && (
+                      <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold ml-auto">
+                        AI-Assisted
+                      </span>
+                    )}
+                  </div>
+
+                  <h3 className="font-extrabold text-base text-[#0B2A55] group-hover:text-[#0B6BE6] transition-colors line-clamp-2 leading-snug">
+                    {paper.title}
+                  </h3>
+
+                  <p className="text-xs text-[#6B7A90] line-clamp-3 leading-relaxed">
+                    {paper.abstract}
+                  </p>
+
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {paper.keywords.slice(0, 3).map((kw) => (
+                      <span key={kw} className="text-[10px] px-2 py-0.5 bg-slate-50 border border-slate-100 rounded-md text-slate-500">
+                        {kw}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                  <div className="truncate max-w-[200px] font-medium">
+                    {renderAuthorList(paper.authors)}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[#0B6BE6] font-bold group-hover:underline">Read PDF →</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* GLOBAL ACADEMIC SEARCH VIEW (250M+ PAPERS & THESES) */}
+      {activeSourceTab === 'global' && (
+        <div className="space-y-6">
+          {/* Global Search Bar */}
+          <div className="bg-white p-5 rounded-3xl border border-[#E3EAF3] shadow-xs space-y-3">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search ANY topic across the globe: e.g., Quantum physics, CRISPR, Renewable energy, Soil agronomy, Bengali NLP..."
+                className="w-full bg-[#F5F8FC] border border-[#E3EAF3] pl-11 pr-4 py-3 rounded-2xl text-sm font-medium text-[#0B2A55] focus:outline-hidden focus:border-[#0B6BE6]"
+              />
+              <Search className="w-5 h-5 text-[#0B6BE6] absolute left-3.5 top-1/2 -translate-y-1/2" />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-1.5 text-slate-500">
+                <Globe className="w-4 h-4 text-[#0B6BE6]" />
+                <span>Indexing OpenAlex, arXiv, & Europe PMC · All disciplines and document types</span>
+              </div>
+              {isLoadingGlobal ? (
+                <span className="text-[#0B6BE6] font-bold animate-pulse">Querying global scholarly catalog...</span>
+              ) : (
+                <span className="text-slate-600 font-semibold">{globalPapers.length} publications found</span>
+              )}
+            </div>
+          </div>
+
+          {/* Global Papers Grid */}
+          <div className="space-y-4">
+            {globalPapers.map((ext) => (
+              <div
+                key={ext.id}
+                className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 hover:border-blue-300 transition-all shadow-xs space-y-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider border ${getWorkTypeBadgeStyle(
+                        ext.workType
+                      )}`}
+                    >
+                      {ext.workType || 'Research Paper'}
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">
+                      {ext.year} · {ext.source}
+                    </span>
+                    {ext.citationsCount > 0 && (
+                      <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
+                        {ext.citationsCount.toLocaleString()} citations
+                      </span>
+                    )}
+                  </div>
+
+                  {ext.venueOrHost && (
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium truncate max-w-sm">
+                      <Building className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{ext.venueOrHost}</span>
+                    </div>
+                  )}
+                </div>
+
+                <h3 className="font-bold text-base sm:text-lg text-[#0B2A55] leading-snug">
+                  {ext.title}
+                </h3>
+
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed line-clamp-3">
+                  {ext.abstractSnippet}
+                </p>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                  <div className="text-slate-500">
+                    Authors: <span className="font-semibold text-slate-800">{ext.authors.join(', ')}</span>
+                  </div>
+
+                  {ext.fieldsOfStudy && ext.fieldsOfStudy.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {ext.fieldsOfStudy.map((f) => (
+                        <span key={f} className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-600">
+                          {f}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-3 text-xs">
+                  {ext.oaPdfUrl && (
+                    <a
+                      href={ext.oaPdfUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0B6BE6] font-bold flex items-center gap-1.5 transition-colors"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span>Download PDF</span>
+                    </a>
+                  )}
+
+                  {ext.url && (
+                    <a
+                      href={ext.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-semibold flex items-center gap-1.5 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Publisher Link</span>
+                    </a>
+                  )}
+
+                  <button
+                    onClick={() => handleCopyGlobalCitation(ext, 'APA')}
+                    className="px-3 py-1.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-semibold cursor-pointer flex items-center gap-1.5 transition-colors"
+                  >
+                    {copiedGlobalId === ext.id ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-700">Copied APA!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy Citation</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => navigate(`/ai-writer?topic=${encodeURIComponent(ext.title)}`)}
+                    className="ml-auto px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Cite in AI Writer</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* In-Browser PDF Reader & Citation Modal */}
       {readingPaper && (

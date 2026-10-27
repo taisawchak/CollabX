@@ -125,7 +125,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ navigate }) => {
                     type="text"
                     value={searchInput}
                     onChange={(e) => setSearchInput(e.target.value)}
-                    placeholder="Search projects, areas or skills..."
+                    placeholder="Search ANY topic: research papers, theses, dissertations, scholars..."
                     className="w-full bg-white text-[#0B2A55] placeholder-slate-400 text-sm font-medium pl-11 pr-4 py-3.5 rounded-2xl shadow-sm focus:outline-hidden"
                   />
                   <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />

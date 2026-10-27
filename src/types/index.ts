@@ -249,6 +249,16 @@ export interface Paper {
   createdAt: string;
 }
 
+export type ScholarlyWorkType =
+  | 'Research Paper'
+  | 'Thesis / Dissertation'
+  | 'Conference Proceeding'
+  | 'Preprint'
+  | 'Journal Article'
+  | 'Book / Chapter'
+  | 'Review Article'
+  | 'Report';
+
 export interface ScholarlyExternalPaper {
   id: string;
   title: string;
@@ -257,9 +267,13 @@ export interface ScholarlyExternalPaper {
   doi?: string;
   url: string;
   oaPdfUrl?: string;
-  source: 'OpenAlex' | 'arXiv' | 'Crossref' | 'Semantic Scholar';
+  source: 'OpenAlex' | 'arXiv' | 'Crossref' | 'Semantic Scholar' | 'Europe PMC' | 'PubMed';
   citationsCount: number;
   abstractSnippet: string;
+  workType?: ScholarlyWorkType;
+  venueOrHost?: string;
+  fieldsOfStudy?: string[];
+  isOpenAccess?: boolean;
 }
 
 export interface ContactMessage {

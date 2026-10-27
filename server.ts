@@ -666,6 +666,28 @@ async function startServer() {
   });
 
   // ============================================================================
+  // Global Scholarly Literature & Thesis Proxy
+  // Allows searching all disciplines, research papers, and thesis papers globally
+  // ============================================================================
+
+  app.get('/api/arxiv', async (req, res) => {
+    try {
+      const query = String(req.query.query || 'all:machine learning');
+      const maxResults = Math.min(Number(req.query.max_results) || 15, 30);
+      const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(
+        query
+      )}&max_results=${maxResults}&sortBy=relevance&sortOrder=descending`;
+      const upstream = await fetch(url, {
+        headers: { 'User-Agent': 'CollabX-Academic/1.0' },
+      });
+      const text = await upstream.text();
+      res.status(upstream.status).type('application/xml').send(text);
+    } catch (err: any) {
+      res.status(502).json({ success: false, error: err.message });
+    }
+  });
+
+  // ============================================================================
   // Vite Integration & Static Frontend Serving
   // ============================================================================
 

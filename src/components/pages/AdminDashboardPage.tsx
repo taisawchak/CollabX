@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { isSupabaseConfigured } from '../../lib/supabase';
 
 interface AdminDashboardPageProps {
   navigate: (path: string) => void;
@@ -125,6 +126,21 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ navigate
           </button>
         </div>
       </div>
+
+      {/* Production Database Status Notice */}
+      {!isSupabaseConfigured() && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <span className="text-base">⚠️</span>
+            <div>
+              <p className="font-bold">Production Database (Supabase) is Not Connected</p>
+              <p className="text-amber-700 mt-0.5">
+                Cross-device mobile-to-laptop registration requires Supabase. Please configure <code className="px-1.5 py-0.5 rounded bg-amber-100 font-mono text-[11px]">VITE_SUPABASE_URL</code> and <code className="px-1.5 py-0.5 rounded bg-amber-100 font-mono text-[11px]">VITE_SUPABASE_ANON_KEY</code> in your deployment environment variables (e.g. Vercel) and run <code className="px-1.5 py-0.5 rounded bg-amber-100 font-mono text-[11px]">supabase/schema.sql</code>.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 4 Stat Cards matching Page 18: Total Users, Researchers, Students, Research Areas */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

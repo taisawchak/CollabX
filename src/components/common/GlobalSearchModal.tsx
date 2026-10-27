@@ -10,10 +10,15 @@ import {
   Sparkles,
   BookOpen,
   ArrowRight,
-  Layers,
+  GraduationCap,
+  Copy,
+  Check,
+  Tag,
+  Compass,
+  Building,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { searchExternalScholarlyWorks } from '../../services/scholarlySearch';
+import { searchExternalScholarlyWorks, formatCitation } from '../../services/scholarlySearch';
 import { ScholarlyExternalPaper } from '../../types';
 
 interface GlobalSearchModalProps {
@@ -29,15 +34,16 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
     projects,
     papers,
     users,
-    areas,
     showToast,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'all' | 'projects' | 'papers' | 'scholarly' | 'people' | 'areas'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'scholarly' | 'thesis' | 'projects' | 'papers' | 'people'>('all');
+  const [selectedWorkType, setSelectedWorkType] = useState<string>('all');
   const [scholarlyResults, setScholarlyResults] = useState<ScholarlyExternalPaper[]>([]);
   const [isLoadingScholarly, setIsLoadingScholarly] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Keyboard shortcut listener for Ctrl+K or /
+  // Keyboard shortcut listener for Ctrl+K, Cmd+K, or Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -51,22 +57,33 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isGlobalSearchOpen, setIsGlobalSearchOpen]);
 
-  // Debounced search query
+  // Debounced search query across global scholarly catalog (OpenAlex & Europe PMC)
   useEffect(() => {
     if (!isGlobalSearchOpen) return;
     const timer = setTimeout(() => {
       if (globalSearchQuery.trim()) {
         setIsLoadingScholarly(true);
-        searchExternalScholarlyWorks(globalSearchQuery).then((res) => {
+        const filterType = activeTab === 'thesis' ? 'thesis' : selectedWorkType;
+        searchExternalScholarlyWorks(globalSearchQuery, {
+          workType: filterType,
+          limit: 15,
+        }).then((res) => {
           setScholarlyResults(res);
           setIsLoadingScholarly(false);
         });
       } else {
-        setScholarlyResults([]);
+        // Load default curated multi-disciplinary works when empty
+        searchExternalScholarlyWorks('', {
+          workType: activeTab === 'thesis' ? 'thesis' : selectedWorkType,
+          limit: 8,
+        }).then((res) => {
+          setScholarlyResults(res);
+          setIsLoadingScholarly(false);
+        });
       }
-    }, 250);
+    }, 200);
     return () => clearTimeout(timer);
-  }, [globalSearchQuery, isGlobalSearchOpen]);
+  }, [globalSearchQuery, isGlobalSearchOpen, activeTab, selectedWorkType]);
 
   if (!isGlobalSearchOpen) return null;
 
@@ -97,12 +114,6 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
       u.skills.some((s) => s.toLowerCase().includes(q))
   );
 
-  const filteredAreas = areas.filter(
-    (a) =>
-      a.name.toLowerCase().includes(q) ||
-      a.subfields.some((s) => s.toLowerCase().includes(q))
-  );
-
   const handleSelectProject = (id: string) => {
     setIsGlobalSearchOpen(false);
     navigate(`/projects/${id}`);
@@ -118,11 +129,6 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
     navigate(`/u/${id}`);
   };
 
-  const handleSelectArea = (slug: string) => {
-    setIsGlobalSearchOpen(false);
-    navigate(`/projects?area=${slug}`);
-  };
-
   const handleSearchSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (globalSearchQuery.trim()) {
@@ -131,15 +137,51 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
     }
   };
 
+  const handleCopyCitation = (paper: ScholarlyExternalPaper) => {
+    const citation = formatCitation(paper, 'APA');
+    navigator.clipboard.writeText(citation);
+    setCopiedId(paper.id);
+    showToast('Citation (APA) copied to clipboard!', 'success');
+    setTimeout(() => setCopiedId(null), 2500);
+  };
+
+  const getWorkTypeBadgeStyle = (type?: string) => {
+    switch (type) {
+      case 'Thesis / Dissertation':
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      case 'Conference Proceeding':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'Preprint':
+        return 'bg-amber-100 text-amber-800 border-amber-200';
+      case 'Journal Article':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'Book / Chapter':
+        return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+      default:
+        return 'bg-slate-100 text-slate-800 border-slate-200';
+    }
+  };
+
+  const sampleSearchTopics = [
+    'Thesis on Machine Learning',
+    'Quantum Computing',
+    'Agricultural Soil Agronomy',
+    'CRISPR Therapeutics',
+    'Renewable Solar Energy',
+    'Bengali NLP Dissertation',
+    'Civil Engineering Concrete',
+    'Macroeconomic Inflation',
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 sm:pt-16 px-3 sm:px-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-150">
       <div
-        className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-[#E3EAF3] overflow-hidden flex flex-col max-h-[82vh]"
+        className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl border border-[#E3EAF3] overflow-hidden flex flex-col max-h-[88vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Search Input */}
-        <form onSubmit={handleSearchSubmit} className="p-4 border-b border-[#E3EAF3] flex items-center gap-3">
-          <Search className="w-5 h-5 text-[#0B6BE6]" />
+        <form onSubmit={handleSearchSubmit} className="p-4 sm:p-5 border-b border-[#E3EAF3] flex items-center gap-3 bg-white">
+          <Search className="w-5 h-5 text-[#0B6BE6] shrink-0" />
           <input
             type="text"
             autoFocus
@@ -150,41 +192,59 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
                 handleSearchSubmit();
               }
             }}
-            placeholder="Search projects, papers, areas, scholars globally..."
-            className="w-full text-base font-medium text-[#0B2A55] placeholder-slate-400 focus:outline-hidden"
+            placeholder="Search ANY topic: research paper, thesis paper, dissertation, journal, author..."
+            className="w-full text-sm sm:text-base font-semibold text-[#0B2A55] placeholder-slate-400 focus:outline-hidden"
           />
           {globalSearchQuery && (
             <button
+              type="button"
               onClick={() => setGlobalSearchQuery('')}
-              className="p-1 text-slate-400 hover:text-slate-600 rounded-full"
+              className="p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           )}
           <button
+            type="button"
             onClick={() => setIsGlobalSearchOpen(false)}
-            className="px-2 py-1 text-xs font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-md"
+            className="px-2.5 py-1 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
           >
             ESC
           </button>
         </form>
 
-        {/* Filter Tabs */}
-        <div className="flex items-center gap-1 px-4 py-2 bg-slate-50 border-b border-[#E3EAF3] overflow-x-auto text-xs">
+        {/* Global Scope Notice Banner */}
+        <div className="px-4 py-2 bg-gradient-to-r from-blue-50 via-slate-50 to-indigo-50 border-b border-[#E3EAF3] flex flex-wrap items-center justify-between gap-2 text-[11px] sm:text-xs">
+          <div className="flex items-center gap-2 text-slate-700">
+            <Globe className="w-3.5 h-3.5 text-[#0B6BE6]" />
+            <span className="font-semibold">Universal Global Discovery:</span>
+            <span className="text-slate-600 hidden sm:inline">
+              Unrestricted by preset portal categories · Indexing 250M+ research papers, theses, & preprints
+            </span>
+          </div>
+          {isLoadingScholarly && (
+            <span className="text-[#0B6BE6] font-bold animate-pulse flex items-center gap-1">
+              <Compass className="w-3 h-3 animate-spin" /> Querying world scholarly graph...
+            </span>
+          )}
+        </div>
+
+        {/* Primary Filter Tabs */}
+        <div className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-50 border-b border-[#E3EAF3] overflow-x-auto text-xs">
           {[
             { id: 'all', label: 'All Results' },
-            { id: 'projects', label: `Projects (${filteredProjects.length})` },
-            { id: 'papers', label: `CollabX Papers (${filteredPapers.length})` },
-            { id: 'scholarly', label: `Global Scholarly (${scholarlyResults.length})` },
-            { id: 'people', label: `People (${filteredUsers.length})` },
-            { id: 'areas', label: `Areas (${filteredAreas.length})` },
+            { id: 'scholarly', label: `Global Papers & Literature (${scholarlyResults.length})` },
+            { id: 'thesis', label: 'Theses & Dissertations' },
+            { id: 'projects', label: `CollabX Projects (${filteredProjects.length})` },
+            { id: 'papers', label: `Local Repo (${filteredPapers.length})` },
+            { id: 'people', label: `Researchers (${filteredUsers.length})` },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-3 py-1.5 rounded-full font-medium transition-colors shrink-0 cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer ${
                 activeTab === tab.id
-                  ? 'bg-[#0B6BE6] text-white shadow-xs'
+                  ? 'bg-[#0B2A55] text-white shadow-xs'
                   : 'text-slate-600 hover:bg-slate-200/60'
               }`}
             >
@@ -193,168 +253,165 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
           ))}
         </div>
 
-        {/* Results Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {!q && (
-            <div className="py-8 text-center text-slate-400 space-y-2">
-              <Search className="w-8 h-8 mx-auto text-slate-300" />
-              <p className="text-sm font-medium">Type a search term to find projects, papers, or researchers.</p>
-              <p className="text-xs text-slate-400">
-                Quick keywords: "AI", "IoT", "Healthcare", "Dr. Fahim", "PyTorch", "Blockchain"
-              </p>
-            </div>
-          )}
+        {/* Quick Topic Chips (when query is empty or exploring) */}
+        {!q && (
+          <div className="px-4 py-3 bg-white border-b border-slate-100 flex items-center gap-2 overflow-x-auto">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-amber-500" />
+              Try Any Topic:
+            </span>
+            {sampleSearchTopics.map((topic) => (
+              <button
+                key={topic}
+                onClick={() => setGlobalSearchQuery(topic)}
+                className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 hover:bg-blue-50 hover:text-[#0B6BE6] text-slate-700 transition-colors shrink-0 cursor-pointer border border-slate-200/60"
+              >
+                {topic}
+              </button>
+            ))}
+          </div>
+        )}
 
-          {/* Section: Projects */}
-          {(activeTab === 'all' || activeTab === 'projects') && filteredProjects.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <FolderKanban className="w-3.5 h-3.5 text-[#0B6BE6]" />
-                  Projects
-                </span>
-                <span className="text-[11px] text-slate-400">{filteredProjects.length} found</span>
-              </div>
-              <div className="space-y-2">
-                {filteredProjects.slice(0, 4).map((p) => (
-                  <div
-                    key={p.id}
-                    onClick={() => handleSelectProject(p.id)}
-                    className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#F5F8FC] border border-transparent hover:border-[#E3EAF3] cursor-pointer transition-colors"
-                  >
-                    <img
-                      src={p.thumbnail}
-                      alt={p.title}
-                      className="w-12 h-10 object-cover rounded-lg shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-[#0B2A55] truncate">{p.title}</p>
-                      <p className="text-xs text-[#6B7A90] truncate">
-                        {p.areaName} · Supervisor: {p.supervisor.name} · {p.filledPositions}/{p.totalPositions} seats
-                      </p>
-                    </div>
-                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                      Open
-                    </span>
+        {/* Results Scroll Area */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-6">
+          {/* SECTION 1: GLOBAL SCHOLARLY PAPERS, THESIS & DISSERTATIONS */}
+          {(activeTab === 'all' || activeTab === 'scholarly' || activeTab === 'thesis') && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1 rounded-lg bg-blue-100 text-[#0B6BE6]">
+                    <Globe className="w-4 h-4" />
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Section: CollabX Papers */}
-          {(activeTab === 'all' || activeTab === 'papers') && filteredPapers.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-purple-600" />
-                  CollabX Papers
-                </span>
-                <span className="text-[11px] text-slate-400">{filteredPapers.length} found</span>
-              </div>
-              <div className="space-y-2">
-                {filteredPapers.slice(0, 6).map((paper) => (
-                  <div
-                    key={paper.id}
-                    onClick={() => handleSelectPaper(paper.id)}
-                    className="p-3 rounded-xl hover:bg-[#F5F8FC] border border-slate-100 hover:border-[#E3EAF3] cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
-                            {paper.paperType}
-                          </span>
-                          <span className="text-[11px] text-slate-500">
-                            {paper.year} · {paper.areaName}
-                          </span>
-                        </div>
-                        <p className="text-sm font-bold text-[#0B2A55] line-clamp-1 mt-1">{paper.title}</p>
-                        <p className="text-xs text-[#6B7A90] mt-0.5 line-clamp-2">
-                          {paper.abstract}
-                        </p>
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          Authors: {paper.authors.join(', ')} · Uploader: {paper.uploaderName}
-                        </p>
-                      </div>
-                    </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-[#0B2A55] flex items-center gap-2">
+                      <span>Global Academic Index (Papers & Theses Across All Disciplines)</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Covers doctoral dissertations, master's theses, peer-reviewed journals, and preprints
+                    </p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Section: Global Scholarly Papers (OpenAlex, arXiv, Crossref) */}
-          {(activeTab === 'all' || activeTab === 'scholarly') && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5 text-blue-600" />
-                  Global Scholarly Database (OpenAlex & arXiv)
+                </div>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                  {scholarlyResults.length} indexed
                 </span>
-                {isLoadingScholarly ? (
-                  <span className="text-xs text-blue-600 animate-pulse">Querying scholarly index...</span>
-                ) : (
-                  <span className="text-[11px] text-slate-400">{scholarlyResults.length} indexed</span>
-                )}
               </div>
-              <div className="space-y-2">
-                {scholarlyResults.slice(0, 3).map((ext) => (
+
+              {/* Scholarly Cards */}
+              <div className="space-y-3">
+                {scholarlyResults.map((ext) => (
                   <div
                     key={ext.id}
-                    className="p-3 rounded-xl border border-blue-50 bg-blue-50/20 hover:bg-blue-50/40 transition-colors"
+                    className="p-4 rounded-2xl border border-slate-200 hover:border-blue-300 bg-white hover:bg-[#F9FBFE] transition-all shadow-xs space-y-2.5"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-100 text-blue-800">
-                            {ext.source}
+                    {/* Header: Type Badge, Source & Citations */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border ${getWorkTypeBadgeStyle(
+                            ext.workType
+                          )}`}
+                        >
+                          {ext.workType || 'Research Paper'}
+                        </span>
+                        <span className="text-xs text-slate-500 font-medium">
+                          {ext.year} · {ext.source}
+                        </span>
+                        {ext.citationsCount > 0 && (
+                          <span className="text-[11px] font-semibold text-slate-500">
+                            · {ext.citationsCount.toLocaleString()} citations
                           </span>
-                          <span className="text-[11px] text-slate-500">
-                            {ext.citationsCount.toLocaleString()} citations
-                          </span>
-                        </div>
-                        <h5 className="text-sm font-bold text-[#0B2A55] mt-1">{ext.title}</h5>
-                        <p className="text-xs text-slate-600 mt-0.5 line-clamp-2">{ext.abstractSnippet}</p>
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          By: {ext.authors.join(', ')} ({ext.year})
-                        </p>
+                        )}
                       </div>
+
+                      {ext.venueOrHost && (
+                        <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium truncate max-w-xs">
+                          <Building className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate">{ext.venueOrHost}</span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Quick actions for external scholarly papers */}
-                    <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-200/50 text-xs">
+                    {/* Title */}
+                    <h4 className="text-sm sm:text-base font-bold text-[#0B2A55] leading-snug">
+                      {ext.title}
+                    </h4>
+
+                    {/* Abstract snippet */}
+                    <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
+                      {ext.abstractSnippet}
+                    </p>
+
+                    {/* Authors & Fields of Study */}
+                    <div className="flex flex-wrap items-center gap-y-1.5 gap-x-3 text-xs text-slate-500">
+                      <div>
+                        Authors: <span className="font-semibold text-slate-700">{ext.authors.join(', ')}</span>
+                      </div>
+                      {ext.fieldsOfStudy && ext.fieldsOfStudy.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 ml-auto">
+                          {ext.fieldsOfStudy.slice(0, 3).map((f) => (
+                            <span
+                              key={f}
+                              className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600"
+                            >
+                              {f}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Bar */}
+                    <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
                       {ext.oaPdfUrl && (
                         <a
                           href={ext.oaPdfUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-[#0B6BE6] hover:underline flex items-center gap-1 font-semibold"
+                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-[#0B6BE6] font-bold flex items-center gap-1.5 transition-colors"
                         >
-                          <BookOpen className="w-3 h-3" />
-                          Open Access PDF
+                          <BookOpen className="w-3.5 h-3.5" />
+                          <span>Open Access PDF</span>
                         </a>
                       )}
+
+                      {ext.url && (
+                        <a
+                          href={ext.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-semibold flex items-center gap-1 transition-colors"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Official Source</span>
+                        </a>
+                      )}
+
                       <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(
-                            `${ext.authors[0]} et al. (${ext.year}). ${ext.title}. ${ext.doi || ext.url}`
-                          );
-                          showToast('Citation copied to clipboard!', 'success');
-                        }}
-                        className="text-slate-600 hover:text-slate-900 cursor-pointer"
+                        onClick={() => handleCopyCitation(ext)}
+                        className="px-2.5 py-1 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-semibold cursor-pointer flex items-center gap-1 transition-colors"
                       >
-                        Copy Citation
+                        {copiedId === ext.id ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            <span className="text-emerald-700">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy Citation</span>
+                          </>
+                        )}
                       </button>
+
                       <button
                         onClick={() => {
                           setIsGlobalSearchOpen(false);
                           navigate(`/ai-writer?topic=${encodeURIComponent(ext.title)}`);
                         }}
-                        className="text-amber-600 hover:text-amber-700 font-semibold cursor-pointer flex items-center gap-1 ml-auto"
+                        className="ml-auto px-3 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold flex items-center gap-1 cursor-pointer transition-colors"
                       >
-                        <Sparkles className="w-3 h-3" />
-                        Cite in AI Writer
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Cite in AI Writer</span>
                       </button>
                     </div>
                   </div>
@@ -363,31 +420,39 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
             </div>
           )}
 
-          {/* Section: People */}
-          {(activeTab === 'all' || activeTab === 'people') && filteredUsers.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <UserIcon className="w-3.5 h-3.5 text-[#0E9F6E]" />
-                  Researchers & Students
-                </span>
-                <span className="text-[11px] text-slate-400">{filteredUsers.length} found</span>
+          {/* SECTION 2: COLLABX RESEARCH PROJECTS */}
+          {(activeTab === 'all' || activeTab === 'projects') && filteredProjects.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1 rounded-lg bg-blue-100 text-[#0B6BE6]">
+                    <FolderKanban className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-sm font-extrabold text-[#0B2A55]">
+                    CollabX Research Projects ({filteredProjects.length})
+                  </h3>
+                </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {filteredUsers.slice(0, 4).map((u) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {filteredProjects.slice(0, 4).map((p) => (
                   <div
-                    key={u.id}
-                    onClick={() => handleSelectUser(u.id)}
-                    className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#F5F8FC] border border-slate-100 hover:border-[#E3EAF3] cursor-pointer"
+                    key={p.id}
+                    onClick={() => handleSelectProject(p.id)}
+                    className="flex items-center gap-3 p-3 rounded-2xl hover:bg-[#F5F8FC] border border-slate-200 hover:border-[#E3EAF3] cursor-pointer transition-colors bg-white"
                   >
                     <img
-                      src={u.avatar}
-                      alt={u.name}
-                      className="w-9 h-9 rounded-full object-cover shrink-0"
+                      src={p.thumbnail}
+                      alt={p.title}
+                      className="w-14 h-12 object-cover rounded-xl shrink-0"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-[#0B2A55] truncate">{u.name}</p>
-                      <p className="text-[11px] text-[#6B7A90] truncate">{u.headline}</p>
+                      <span className="text-[10px] font-bold text-[#0B6BE6] bg-blue-50 px-1.5 py-0.5 rounded">
+                        {p.areaName}
+                      </span>
+                      <p className="text-xs font-bold text-[#0B2A55] truncate mt-0.5">{p.title}</p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        Supervisor: {p.supervisor.name}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -395,25 +460,76 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
             </div>
           )}
 
-          {/* Section: Research Areas */}
-          {(activeTab === 'all' || activeTab === 'areas') && filteredAreas.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-amber-500" />
-                  Research Areas
-                </span>
+          {/* SECTION 3: COLLABX INTERNAL REPOSITORY PAPERS */}
+          {(activeTab === 'all' || activeTab === 'papers') && filteredPapers.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1 rounded-lg bg-purple-100 text-purple-700">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-sm font-extrabold text-[#0B2A55]">
+                    CollabX Repository Papers ({filteredPapers.length})
+                  </h3>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {filteredAreas.map((a) => (
-                  <button
-                    key={a.id}
-                    onClick={() => handleSelectArea(a.slug)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-[#DCE6FB] text-[#0B2A55] transition-colors cursor-pointer flex items-center gap-1.5"
+              <div className="space-y-2">
+                {filteredPapers.slice(0, 3).map((paper) => (
+                  <div
+                    key={paper.id}
+                    onClick={() => handleSelectPaper(paper.id)}
+                    className="p-3 rounded-2xl hover:bg-[#F5F8FC] border border-slate-200 hover:border-[#E3EAF3] cursor-pointer transition-colors bg-white flex items-center justify-between gap-3"
                   >
-                    <span>{a.name}</span>
-                    <span className="text-slate-400">({a.projectCount})</span>
-                  </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+                          {paper.paperType}
+                        </span>
+                        <span className="text-[11px] text-slate-500">{paper.year}</span>
+                      </div>
+                      <p className="text-xs font-bold text-[#0B2A55] truncate mt-1">{paper.title}</p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        By {paper.authors.join(', ')}
+                      </p>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 4: RESEARCHERS & SCHOLARS */}
+          {(activeTab === 'all' || activeTab === 'people') && filteredUsers.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1 rounded-lg bg-emerald-100 text-emerald-700">
+                    <UserIcon className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-sm font-extrabold text-[#0B2A55]">
+                    Researchers & Scholars ({filteredUsers.length})
+                  </h3>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {filteredUsers.slice(0, 4).map((u) => (
+                  <div
+                    key={u.id}
+                    onClick={() => handleSelectUser(u.id)}
+                    className="flex items-center gap-3 p-3 rounded-2xl hover:bg-[#F5F8FC] border border-slate-200 hover:border-[#E3EAF3] cursor-pointer transition-colors bg-white"
+                  >
+                    <img
+                      src={u.avatar}
+                      alt={u.name}
+                      className="w-10 h-10 rounded-full object-cover shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-[#0B2A55] truncate">{u.name}</p>
+                      <p className="text-[11px] text-slate-500 truncate">{u.headline}</p>
+                      <span className="text-[10px] font-semibold text-[#0B6BE6] capitalize">{u.role}</span>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -421,20 +537,22 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
         </div>
 
         {/* Bottom Helper Bar */}
-        <div className="p-3 bg-slate-50 border-t border-[#E3EAF3] text-xs text-slate-500 flex items-center justify-between">
+        <div className="p-3.5 bg-slate-50 border-t border-[#E3EAF3] text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span>Press</span>
             <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-bold">ESC</kbd>
-            <span>to close</span>
+            <span>to close or</span>
+            <kbd className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-bold">ENTER</kbd>
+            <span>for full page</span>
           </div>
           <button
             onClick={() => {
               setIsGlobalSearchOpen(false);
               navigate(`/search?q=${encodeURIComponent(globalSearchQuery)}`);
             }}
-            className="text-[#0B6BE6] font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+            className="text-[#0B6BE6] font-bold hover:underline flex items-center gap-1 cursor-pointer"
           >
-            <span>View Full Results Page</span>
+            <span>Explore All Search Results Page</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
