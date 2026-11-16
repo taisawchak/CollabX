@@ -45,17 +45,23 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
   // Synchronize global search across 250M+ scholarly works
   React.useEffect(() => {
     if (activeSourceTab === 'global' || searchQuery.trim().length > 0) {
+      let cancelled = false;
       setIsLoadingGlobal(true);
       const timer = setTimeout(() => {
         searchExternalScholarlyWorks(searchQuery, {
           workType: globalWorkType,
           limit: 24,
         }).then((res) => {
-          setGlobalPapers(res);
-          setIsLoadingGlobal(false);
+          if (!cancelled) {
+            setGlobalPapers(res);
+            setIsLoadingGlobal(false);
+          }
         });
-      }, 200);
-      return () => clearTimeout(timer);
+      }, 220);
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
     }
   }, [searchQuery, activeSourceTab, globalWorkType]);
 
@@ -262,6 +268,7 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
               { id: 'journal', label: 'Journals' },
               { id: 'conference', label: 'Conferences' },
               { id: 'preprint', label: 'Preprints' },
+              { id: 'book', label: 'Books' },
             ].map((ft) => (
               <button
                 key={ft.id}
@@ -422,7 +429,7 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-1.5 text-slate-500">
                 <Globe className="w-4 h-4 text-[#0B6BE6]" />
-                <span>Indexing OpenAlex, arXiv, & Europe PMC · All disciplines and document types</span>
+                <span>Indexing Crossref, DOAJ, Europe PMC, arXiv & OpenAlex · All disciplines and document types</span>
               </div>
               {isLoadingGlobal ? (
                 <span className="text-[#0B6BE6] font-bold animate-pulse">Querying global scholarly catalog...</span>
@@ -431,6 +438,16 @@ export const PapersListPage: React.FC<PapersListPageProps> = ({ navigate, select
               )}
             </div>
           </div>
+
+          {!isLoadingGlobal && globalPapers.length === 0 && (
+            <div className="bg-white p-8 rounded-3xl border border-dashed border-slate-300 text-center space-y-2">
+              <Globe className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-bold text-sm text-[#0B2A55]">No global publications matched "{searchQuery}"</p>
+              <p className="text-xs text-slate-500">
+                Try switching the document type filter to "All" or broadening your topic keywords.
+              </p>
+            </div>
+          )}
 
           {/* Global Papers Grid */}
           <div className="space-y-4">

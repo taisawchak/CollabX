@@ -267,7 +267,7 @@ export interface ScholarlyExternalPaper {
   doi?: string;
   url: string;
   oaPdfUrl?: string;
-  source: 'OpenAlex' | 'arXiv' | 'Crossref' | 'Semantic Scholar' | 'Europe PMC' | 'PubMed';
+  source: 'OpenAlex' | 'arXiv' | 'Crossref' | 'Semantic Scholar' | 'Europe PMC' | 'PubMed' | 'DOAJ';
   citationsCount: number;
   abstractSnippet: string;
   workType?: ScholarlyWorkType;

@@ -15,6 +15,7 @@ import {
   Filter,
   Layers,
   ArrowRight,
+  X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { searchExternalScholarlyWorks, formatCitation } from '../../services/scholarlySearch';
@@ -43,15 +44,34 @@ export const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ navigate, 
   }, [queryParam]);
 
   useEffect(() => {
+    let cancelled = false;
     setIsLoadingScholarly(true);
-    const targetType = tab === 'thesis' ? 'thesis' : workTypeFilter;
-    searchExternalScholarlyWorks(query, {
-      workType: targetType,
-      limit: 24,
-    }).then((res) => {
-      setScholarlyResults(res);
-      setIsLoadingScholarly(false);
-    });
+
+    // Keep URL in sync when typing on /search
+    if (window.location.pathname === '/search') {
+      const targetUrl = query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : '/search';
+      if (window.location.pathname + window.location.search !== targetUrl) {
+        window.history.replaceState({}, '', targetUrl);
+      }
+    }
+
+    const timer = setTimeout(() => {
+      const targetType = tab === 'thesis' ? 'thesis' : workTypeFilter;
+      searchExternalScholarlyWorks(query, {
+        workType: targetType,
+        limit: 24,
+      }).then((res) => {
+        if (!cancelled) {
+          setScholarlyResults(res);
+          setIsLoadingScholarly(false);
+        }
+      });
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query, tab, workTypeFilter]);
 
   const q = query.toLowerCase().trim();
@@ -149,8 +169,9 @@ export const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ navigate, 
             <button
               onClick={() => setQuery('')}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-full cursor-pointer"
+              title="Clear search"
             >
-              <ExternalLink className="w-4 h-4 rotate-45" />
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>
@@ -204,6 +225,7 @@ export const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ navigate, 
                 { id: 'journal', label: 'Journal' },
                 { id: 'conference', label: 'Conference' },
                 { id: 'preprint', label: 'Preprint' },
+                { id: 'book', label: 'Book' },
               ].map((ft) => (
                 <button
                   key={ft.id}
@@ -237,7 +259,7 @@ export const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ navigate, 
                     Global Academic Papers, Theses & Dissertations
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Live indexing from OpenAlex, arXiv, & Europe PMC across all scientific disciplines
+                    Live indexing from Crossref, DOAJ, Europe PMC, arXiv & OpenAlex across every discipline worldwide
                   </p>
                 </div>
               </div>
@@ -252,7 +274,16 @@ export const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ navigate, 
               )}
             </div>
 
-            <div className="grid grid-cols-1 gap-4">
+            {!isLoadingScholarly && scholarlyResults.length === 0 ? (
+              <div className="bg-white p-8 rounded-3xl border border-dashed border-slate-300 text-center space-y-2">
+                <Globe className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="font-bold text-sm text-[#0B2A55]">No global scholarly records matched "{query}"</p>
+                <p className="text-xs text-slate-500">
+                  Try adjusting your keywords or selecting "All Types" to search across journals, theses, conferences, books, and preprints.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
               {scholarlyResults.map((ext) => (
                 <div
                   key={ext.id}
@@ -377,7 +408,8 @@ export const SearchResultsPage: React.FC<SearchResultsPageProps> = ({ navigate, 
                   </div>
                 </div>
               ))}
-            </div>
+              </div>
+            )}
           </div>
         )}
 

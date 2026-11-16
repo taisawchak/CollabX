@@ -57,32 +57,39 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isGlobalSearchOpen, setIsGlobalSearchOpen]);
 
-  // Debounced search query across global scholarly catalog (OpenAlex & Europe PMC)
+  // Debounced search query across global scholarly catalog (Crossref, DOAJ, Europe PMC, arXiv, OpenAlex)
   useEffect(() => {
     if (!isGlobalSearchOpen) return;
+    let cancelled = false;
     const timer = setTimeout(() => {
+      const filterType = activeTab === 'thesis' ? 'thesis' : selectedWorkType;
       if (globalSearchQuery.trim()) {
         setIsLoadingScholarly(true);
-        const filterType = activeTab === 'thesis' ? 'thesis' : selectedWorkType;
         searchExternalScholarlyWorks(globalSearchQuery, {
           workType: filterType,
-          limit: 15,
+          limit: 18,
         }).then((res) => {
-          setScholarlyResults(res);
-          setIsLoadingScholarly(false);
+          if (!cancelled) {
+            setScholarlyResults(res);
+            setIsLoadingScholarly(false);
+          }
         });
       } else {
-        // Load default curated multi-disciplinary works when empty
+        setIsLoadingScholarly(false);
         searchExternalScholarlyWorks('', {
-          workType: activeTab === 'thesis' ? 'thesis' : selectedWorkType,
+          workType: filterType,
           limit: 8,
         }).then((res) => {
-          setScholarlyResults(res);
-          setIsLoadingScholarly(false);
+          if (!cancelled) {
+            setScholarlyResults(res);
+          }
         });
       }
-    }, 200);
-    return () => clearTimeout(timer);
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [globalSearchQuery, isGlobalSearchOpen, activeTab, selectedWorkType]);
 
   if (!isGlobalSearchOpen) return null;
@@ -174,7 +181,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 sm:pt-16 px-3 sm:px-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-150">
+    <div
+      onClick={() => setIsGlobalSearchOpen(false)}
+      className="fixed inset-0 z-50 flex items-start justify-center pt-10 sm:pt-16 px-3 sm:px-4 bg-black/65 backdrop-blur-xs animate-in fade-in duration-150"
+    >
       <div
         className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl border border-[#E3EAF3] overflow-hidden flex flex-col max-h-[88vh]"
         onClick={(e) => e.stopPropagation()}
@@ -230,27 +240,54 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
         </div>
 
         {/* Primary Filter Tabs */}
-        <div className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-50 border-b border-[#E3EAF3] overflow-x-auto text-xs">
-          {[
-            { id: 'all', label: 'All Results' },
-            { id: 'scholarly', label: `Global Papers & Literature (${scholarlyResults.length})` },
-            { id: 'thesis', label: 'Theses & Dissertations' },
-            { id: 'projects', label: `CollabX Projects (${filteredProjects.length})` },
-            { id: 'papers', label: `Local Repo (${filteredPapers.length})` },
-            { id: 'people', label: `Researchers (${filteredUsers.length})` },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer ${
-                activeTab === tab.id
-                  ? 'bg-[#0B2A55] text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 border-b border-[#E3EAF3] text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            {[
+              { id: 'all', label: 'All Results' },
+              { id: 'scholarly', label: `Global Papers (${scholarlyResults.length})` },
+              { id: 'thesis', label: 'Theses & Dissertations' },
+              { id: 'projects', label: `CollabX Projects (${filteredProjects.length})` },
+              { id: 'papers', label: `Local Repo (${filteredPapers.length})` },
+              { id: 'people', label: `Researchers (${filteredUsers.length})` },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer ${
+                  activeTab === tab.id
+                    ? 'bg-[#0B2A55] text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-200/60'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {(activeTab === 'all' || activeTab === 'scholarly') && (
+            <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 overflow-x-auto">
+              {[
+                { id: 'all', label: 'All Types' },
+                { id: 'thesis', label: 'Thesis' },
+                { id: 'journal', label: 'Journal' },
+                { id: 'conference', label: 'Conference' },
+                { id: 'preprint', label: 'Preprint' },
+                { id: 'book', label: 'Book' },
+              ].map((wt) => (
+                <button
+                  key={wt.id}
+                  onClick={() => setSelectedWorkType(wt.id)}
+                  className={`px-2 py-1 rounded-md text-[11px] font-bold transition-colors shrink-0 cursor-pointer ${
+                    selectedWorkType === wt.id
+                      ? 'bg-[#0B6BE6] text-white'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {wt.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Quick Topic Chips (when query is empty or exploring) */}
@@ -297,12 +334,17 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
               </div>
 
               {/* Scholarly Cards */}
-              <div className="space-y-3">
-                {scholarlyResults.map((ext) => (
-                  <div
-                    key={ext.id}
-                    className="p-4 rounded-2xl border border-slate-200 hover:border-blue-300 bg-white hover:bg-[#F9FBFE] transition-all shadow-xs space-y-2.5"
-                  >
+              {!isLoadingScholarly && scholarlyResults.length === 0 ? (
+                <div className="p-6 rounded-2xl border border-dashed border-slate-300 text-center text-xs text-slate-500">
+                  No global papers or theses matched "{globalSearchQuery}" for this document type filter. Try switching to "All Types" or broadening your keywords.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {scholarlyResults.map((ext) => (
+                    <div
+                      key={ext.id}
+                      className="p-4 rounded-2xl border border-slate-200 hover:border-blue-300 bg-white hover:bg-[#F9FBFE] transition-all shadow-xs space-y-2.5"
+                    >
                     {/* Header: Type Badge, Source & Citations */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -417,6 +459,7 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({ navigate }
                   </div>
                 ))}
               </div>
+              )}
             </div>
           )}
 
